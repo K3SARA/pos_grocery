@@ -6,7 +6,7 @@
   },
   "deploy": {
     "startCommand": "npm run start:railway",
-    "healthcheckPath": "/health/db",
+    "healthcheckPath": "/",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
