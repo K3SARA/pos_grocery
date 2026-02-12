@@ -5,6 +5,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 
 
 import { PrismaClient, Prisma } from "@prisma/client";
@@ -1653,15 +1654,20 @@ const __dirname = path.dirname(__filename);
 
 // IMPORTANT: adjust path if your folder structure differs
 const buildPath = path.join(__dirname, "../../frontend/build");
-app.use(express.static(buildPath));
+const hasFrontendBuild = existsSync(path.join(buildPath, "index.html"));
+if (hasFrontendBuild) {
+  app.use(express.static(buildPath));
+}
 
 /**
  * ✅ Fixes your crash: "Missing parameter name at index 1: *"
  * Use a safe wildcard that works cleanly.
  */
-app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(buildPath, "index.html"));
-});
+if (hasFrontendBuild) {
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.join(buildPath, "index.html"));
+  });
+}
 
 // ------------------- GLOBAL ERROR HANDLER (LAST) -------------------
 app.use((err: any, req: any, res: any, next: any) => {
