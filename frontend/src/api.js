@@ -1,4 +1,10 @@
-const API = "http://localhost:4000";
+/* eslint-env browser */
+
+const API =
+  (process.env.REACT_APP_API_URL || "https://posgrocery-production.up.railway.app").replace(
+    /\/+$/,
+    ""
+  );
 
 
 

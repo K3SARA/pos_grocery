@@ -6,11 +6,26 @@ export default function AdminDashboard({ onLogout }) {
   const navigate = useNavigate();
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const role = localStorage.getItem("role");
+  const [newSupplierName, setNewSupplierName] = useState("");
+const [newSupplierInvoiceNo, setNewSupplierInvoiceNo] = useState("");
+const [newReceivedDate, setNewReceivedDate] = useState(() => {
+  const d = new Date();
+  return d.toISOString().slice(0, 10); // yyyy-mm-dd
+});
+const [newInvoicePhoto, setNewInvoicePhoto] = useState("");
+
+
+
+  
 
   const [products, setProducts] = useState([]);
   const [productsTotal, setProductsTotal] = useState(0);
   const [users, setUsers] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [sales, setSales] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [customerOutstanding, setCustomerOutstanding] = useState({});
   const [summary, setSummary] = useState({
     totalProducts: 0,
     totalStock: 0,
@@ -24,6 +39,7 @@ export default function AdminDashboard({ onLogout }) {
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [billingPrice, setBillingPrice] = useState("");
   const [stock, setStock] = useState("");
 
   // Product list controls
@@ -31,9 +47,20 @@ export default function AdminDashboard({ onLogout }) {
   const [sortBy, setSortBy] = useState("name");
   const [sortDir, setSortDir] = useState("asc");
   const [editingBarcode, setEditingBarcode] = useState(null);
-  const [editValues, setEditValues] = useState({ name: "", price: "", stock: "" });
+  const [editValues, setEditValues] = useState({ name: "", price: "", billingPrice: "", stock: "" });
   const [page, setPage] = useState(0);
   const pageSize = 25;
+
+  // Customer form
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+
+  const [showReportsPopup, setShowReportsPopup] = useState(false);
+  const [showStockMenu, setShowStockMenu] = useState(false);
+  const [showLowStock, setShowLowStock] = useState(false);
+  const [lowStockItems, setLowStockItems] = useState([]);
+  const [lowStockLoading, setLowStockLoading] = useState(false);
 
   // User form
   const [newUsername, setNewUsername] = useState("");
@@ -44,6 +71,11 @@ export default function AdminDashboard({ onLogout }) {
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
+  const [salesLoaded, setSalesLoaded] = useState(false);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [printPanelId, setPrintPanelId] = useState("");
+
+  
 
   const loadSummary = useCallback(async () => {
     setMsg("");
@@ -88,6 +120,29 @@ export default function AdminDashboard({ onLogout }) {
     }
   }, []);
 
+ const loadCustomers = async () => {
+  try {
+    const [data, outstanding] = await Promise.all([
+      apiFetch("/customers/all"),
+      apiFetch("/reports/customer-outstanding"),
+    ]);
+
+    setCustomers(Array.isArray(data) ? data : []);
+    const map = {};
+    (outstanding?.rows || []).forEach((row) => {
+      if (row?.customerId) {
+        map[row.customerId] = Number(row.outstanding || 0);
+      }
+    });
+    setCustomerOutstanding(map);
+  } catch (e) {
+    console.error(e);
+    setCustomers([]);
+    setCustomerOutstanding({});
+  }
+};
+
+
   const loadAnalytics = useCallback(async () => {
     setMsg("");
     setLoading(true);
@@ -102,6 +157,36 @@ export default function AdminDashboard({ onLogout }) {
     }
   }, []);
 
+  const loadSales = useCallback(async () => {
+    setMsg("");
+    setLoading(true);
+    try {
+      const data = await apiFetch("/sales");
+      setSales(data);
+      setSalesLoaded(true);
+    } catch (e) {
+      setMsg(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const openLowStock = async () => {
+    try {
+      setLowStockLoading(true);
+      const data = await apiFetch("/products");
+      const list = Array.isArray(data) ? data : (data?.items || []);
+      const filtered = list.filter((p) => Number(p.stock || 0) <= 5);
+      setLowStockItems(filtered);
+      setShowLowStock(true);
+    } catch (e) {
+      setLowStockItems([]);
+      setShowLowStock(true);
+    } finally {
+      setLowStockLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
@@ -111,8 +196,10 @@ export default function AdminDashboard({ onLogout }) {
       if (!productsLoaded) loadProducts(0);
       if (!usersLoaded) loadUsers();
       if (!analyticsLoaded) loadAnalytics();
+      if (!salesLoaded) loadSales();
+      if (!customersLoaded) loadCustomers();
     }
-  }, [fastMode, productsLoaded, usersLoaded, analyticsLoaded, loadProducts, loadUsers, loadAnalytics]);
+  }, [fastMode, productsLoaded, usersLoaded, analyticsLoaded, salesLoaded, customersLoaded, loadProducts, loadUsers, loadAnalytics, loadSales, loadCustomers]);
 
   const visibleProducts = useMemo(() => {
     const normalize = (v) => String(v ?? "").toLowerCase();
@@ -146,7 +233,13 @@ export default function AdminDashboard({ onLogout }) {
           barcode,
           name,
           price: Number(price),
+          billingPrice: Number(billingPrice),
           stock: Number(stock || 0),
+          supplierName: newSupplierName || null,
+supplierInvoiceNo: newSupplierInvoiceNo || null,
+receivedDate: newReceivedDate ? newReceivedDate : null,
+invoicePhoto: newInvoicePhoto || null,
+
         }),
       });
 
@@ -154,6 +247,7 @@ export default function AdminDashboard({ onLogout }) {
       setBarcode("");
       setName("");
       setPrice("");
+      setBillingPrice("");
       setStock("");
       await loadSummary();
       if (productsLoaded) {
@@ -169,13 +263,14 @@ export default function AdminDashboard({ onLogout }) {
     setEditValues({
       name: product.name,
       price: product.price,
+      billingPrice: product.billingPrice,
       stock: product.stock,
     });
   };
 
   const cancelEdit = () => {
     setEditingBarcode(null);
-    setEditValues({ name: "", price: "", stock: "" });
+    setEditValues({ name: "", price: "", billingPrice: "", stock: "" });
   };
 
   const saveEdit = async (barcodeValue) => {
@@ -185,6 +280,7 @@ export default function AdminDashboard({ onLogout }) {
         body: JSON.stringify({
           name: editValues.name,
           price: Number(editValues.price),
+          billingPrice: Number(editValues.billingPrice),
           stock: Number(editValues.stock),
         }),
       });
@@ -238,24 +334,79 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
-  const updateRole = async (userId) => {
-    const role = roleEdits[userId];
-    if (!role) return;
+  const nameRegex = /^[A-Za-z\s]+$/;
+  const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
+
+  const createCustomer = async (e) => {
+    e.preventDefault();
+    setMsg("");
+    const name = customerName.trim();
+    if (!name) {
+      setMsg("Customer name is required");
+      return;
+    }
+    if (!nameRegex.test(name)) {
+      setMsg("Customer name must contain only letters and spaces");
+      return;
+    }
+    const phoneDigits = digitsOnly(customerPhone);
+    if (phoneDigits.length !== 10) {
+      setMsg("Customer phone must be exactly 10 digits");
+      return;
+    }
     try {
-      await apiFetch(`/users/${userId}/role`, {
-        method: "PUT",
-        body: JSON.stringify({ role }),
+      await apiFetch("/customers", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          phone: phoneDigits,
+          address: customerAddress,
+        }),
       });
-      setMsg("Role updated");
-      setRoleEdits((prev) => ({ ...prev, [userId]: undefined }));
-      await loadSummary();
-      if (usersLoaded) {
-        await loadUsers();
+      setMsg("Customer created");
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      if (customersLoaded) {
+        await loadCustomers();
       }
     } catch (e) {
       setMsg("Error: " + e.message);
     }
   };
+  const updateRole = async (userId) => {
+    console.log("updateRole clicked", userId, roleEdits[userId]);
+
+  // ✅ get the current shown value (edited or existing)
+  const currentRole = users.find((x) => x.id === userId)?.role;
+  const role = roleEdits[userId] ?? currentRole;
+
+  if (!role) {
+    setMsg("No role selected");
+    return;
+  }
+
+  try {
+    await apiFetch(`/users/${userId}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    });
+
+    setMsg("Role updated");
+
+    // ✅ clear edit state properly
+    setRoleEdits((prev) => {
+      const copy = { ...prev };
+      delete copy[userId];
+      return copy;
+    });
+
+    await loadUsers(); // refresh list to see change
+  } catch (e) {
+    setMsg("Error: " + e.message);
+  }
+};
+
 
   const deleteUser = async (userId) => {
     if (!window.confirm("Delete this user?")) return;
@@ -271,15 +422,27 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
+  const handlePrintPanel = (id) => {
+    setPrintPanelId(id);
+    const cleanup = () => setPrintPanelId("");
+    window.onafterprint = cleanup;
+    setTimeout(() => {
+      window.print();
+    }, 50);
+  };
+
   return (
-    <div className="admin-shell">
+    <div className={printPanelId ? "admin-shell print-panel-mode" : "admin-shell"}>
       <style>{`
         @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
 
         .admin-shell {
           font-family: "Space Grotesk", sans-serif;
-          color: #0f172a;
-          background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+          color: var(--text);
+          background:
+            radial-gradient(1200px 500px at 10% -10%, rgba(34, 193, 181, 0.15) 0%, rgba(34, 193, 181, 0) 60%),
+            radial-gradient(900px 400px at 90% -20%, rgba(245, 158, 11, 0.12) 0%, rgba(245, 158, 11, 0) 55%),
+            var(--bg);
           min-height: 100vh;
           padding: 24px 20px 40px;
         }
@@ -305,7 +468,7 @@ export default function AdminDashboard({ onLogout }) {
 
         .title span {
           font-size: 13px;
-          color: #64748b;
+          color: var(--muted);
         }
 
         .actions {
@@ -314,26 +477,68 @@ export default function AdminDashboard({ onLogout }) {
           flex-wrap: wrap;
         }
 
+        .menu-wrap {
+          position: relative;
+        }
+
+        .menu-panel {
+          position: absolute;
+          top: calc(100% + 6px);
+          right: 0;
+          display: grid;
+          gap: 6px;
+          padding: 8px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          box-shadow: var(--shadow);
+          z-index: 20;
+          min-width: 170px;
+        }
+
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          z-index: 9999;
+        }
+
+        .modal {
+          background: var(--panel);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 16px;
+          width: min(720px, 100%);
+          max-height: 80vh;
+          overflow: auto;
+        }
+
         .btn {
           border: none;
           border-radius: 10px;
           padding: 9px 14px;
           font-weight: 600;
           cursor: pointer;
-          background: #0f172a;
-          color: #fff;
+          background: var(--accent);
+          color: var(--bg);
           transition: transform 120ms ease, box-shadow 120ms ease;
         }
 
         .btn.secondary {
-          background: #e2e8f0;
-          color: #0f172a;
+          background: var(--panel);
+          color: var(--text);
+          border: 1px solid var(--border);
         }
 
         .btn.ghost {
           background: transparent;
-          border: 1px solid #cbd5f5;
-          color: #0f172a;
+          border: 1px solid var(--border);
+          color: var(--text);
         }
 
         .btn:disabled {
@@ -342,8 +547,9 @@ export default function AdminDashboard({ onLogout }) {
         }
 
         .banner {
-          background: #0f172a;
-          color: #fff;
+          background: var(--panel);
+          color: var(--text);
+          border: 1px solid var(--border);
           padding: 10px 14px;
           border-radius: 10px;
           font-weight: 600;
@@ -358,14 +564,15 @@ export default function AdminDashboard({ onLogout }) {
         }
 
         .card {
-          background: #fff;
-          border: 1px solid #e2e8f0;
+          background: var(--panel);
+          border: 1px solid var(--border);
           border-radius: 12px;
           padding: 12px;
+          color: var(--text);
         }
 
         .card .label {
-          color: #64748b;
+          color: var(--muted);
           font-size: 12px;
           margin-bottom: 8px;
         }
@@ -382,8 +589,8 @@ export default function AdminDashboard({ onLogout }) {
         }
 
         .panel {
-          background: #fff;
-          border: 1px solid #e2e8f0;
+          background: var(--panel);
+          border: 1px solid var(--border);
           border-radius: 12px;
           padding: 14px;
         }
@@ -400,7 +607,7 @@ export default function AdminDashboard({ onLogout }) {
         .input-group label {
           font-size: 12px;
           font-weight: 600;
-          color: #334155;
+          color: var(--muted);
         }
 
         .input-group input,
@@ -409,7 +616,9 @@ export default function AdminDashboard({ onLogout }) {
           padding: 9px 10px;
           margin-top: 6px;
           border-radius: 8px;
-          border: 1px solid #cbd5f5;
+          border: 1px solid var(--border);
+          background: #0f172a;
+          color: var(--text);
           font-size: 14px;
         }
 
@@ -430,7 +639,9 @@ export default function AdminDashboard({ onLogout }) {
         .table-tools select {
           padding: 8px 10px;
           border-radius: 8px;
-          border: 1px solid #cbd5f5;
+          border: 1px solid var(--border);
+          background: #0f172a;
+          color: var(--text);
         }
 
         table {
@@ -442,37 +653,144 @@ export default function AdminDashboard({ onLogout }) {
         thead th {
           text-align: left;
           padding: 10px;
-          background: #f8fafc;
-          border-bottom: 1px solid #e2e8f0;
+          background: rgba(255, 255, 255, 0.04);
+          border-bottom: 1px solid var(--border);
         }
 
         tbody td {
           padding: 10px;
-          border-bottom: 1px solid #f1f5f9;
+          border-bottom: 1px solid var(--border);
         }
 
         tbody tr:hover {
-          background: #f8fafc;
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .reports-wrap {
+          position: relative;
+          display: inline-block;
+        }
+
+        .reports-menu {
+          position: absolute;
+          top: 42px;
+          left: 0;
+          z-index: 10;
+          min-width: 180px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          box-shadow: var(--shadow);
+          padding: 6px;
+        }
+
+        .reports-menu button {
+          width: 100%;
+          text-align: left;
+          padding: 8px 10px;
+          border-radius: 8px;
         }
 
         @media (max-width: 640px) {
           .title h2 { font-size: 22px; }
           .panel-wide { grid-column: auto; }
         }
+        @media print {
+          .print-panel-mode * { visibility: hidden !important; }
+          .print-panel-mode .print-panel-area,
+          .print-panel-mode .print-panel-area * {
+            visibility: visible !important;
+          }
+          .print-panel-mode .print-panel-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: #fff;
+            color: #000;
+            border: none !important;
+            box-shadow: none !important;
+          }
+          .print-hide {
+            display: none !important;
+          }
+        }
       `}</style>
-
       <div className="admin-content">
         <div className="topbar">
           <div className="title">
-            <h2>Admin Dashboard</h2>
+            <h2>Admin Dashboard | Apex Logistics</h2>
             <span>Minimal control center for your POS</span>
           </div>
           <div className="actions">
-            <button className="btn ghost" onClick={() => navigate("/reports")}>Reports</button>
+            <div className="menu-wrap">
+              <button
+                className="btn ghost"
+                onClick={() => setShowReportsPopup((v) => !v)}
+              >
+                Reports
+              </button>
+              {showReportsPopup && (
+                <div className="menu-panel">
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setShowReportsPopup(false);
+                      navigate("/reports");
+                    }}
+                  >
+                    Sales Reports
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setShowReportsPopup(false);
+                      navigate("/reports/items");
+                    }}
+                  >
+                    Item-wise Report
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button className="btn ghost" onClick={() => navigate("/returns")}>Returns</button>
+            <div className="menu-wrap">
+              <button
+                className="btn ghost"
+                onClick={() => setShowStockMenu((v) => !v)}
+              >
+                Stock
+              </button>
+              {showStockMenu && (
+                <div className="menu-panel">
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setShowStockMenu(false);
+                      navigate("/stock");
+                    }}
+                  >
+                    Current Stock
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setShowStockMenu(false);
+                      navigate("/stock/returned");
+                    }}
+                  >
+                    Returned Stock
+                  </button>
+                </div>
+              )}
+            </div>
             <button className="btn secondary" onClick={() => navigate("/end-day")}>End Day</button>
+            <button className="btn ghost" onClick={() => navigate("/billing")}>Billing</button>
             <button className="btn" onClick={onLogout}>Logout</button>
           </div>
         </div>
+
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <input
@@ -481,12 +799,53 @@ export default function AdminDashboard({ onLogout }) {
             checked={fastMode}
             onChange={(e) => setFastMode(e.target.checked)}
           />
-          <label htmlFor="fast-mode" style={{ fontSize: 12, color: "#475569" }}>
+          <label htmlFor="fast-mode" style={{ fontSize: 12, color: "var(--muted)" }}>
             Fast Mode (load heavy data only when needed)
           </label>
         </div>
+      
 
         {msg && <div className="banner">{msg}</div>}
+
+        {showLowStock && (
+          <div className="overlay" onClick={() => setShowLowStock(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ margin: 0 }}>Low Stock Items (≤ 5)</h3>
+                <button className="btn ghost" onClick={() => setShowLowStock(false)}>Close</button>
+              </div>
+
+              {lowStockLoading ? (
+                <p style={{ color: "var(--muted)" }}>Loading...</p>
+              ) : lowStockItems.length === 0 ? (
+                <p style={{ color: "var(--muted)" }}>No low stock items.</p>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Barcode</th>
+                      <th>Name</th>
+                      <th>Stock</th>
+                      <th>Billing Price</th>
+                      <th>Supplier</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowStockItems.map((p) => (
+                      <tr key={p.barcode}>
+                        <td>{p.barcode}</td>
+                        <td>{p.name}</td>
+                        <td>{p.stock}</td>
+                        <td>{p.billingPrice ?? p.price}</td>
+                        <td>{p.supplierName || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="cards">
           <div className="card">
@@ -497,7 +856,7 @@ export default function AdminDashboard({ onLogout }) {
             <div className="label">Total Stock Units</div>
             <div className="value">{summary.totalStock}</div>
           </div>
-          <div className="card">
+          <div className="card" style={{ cursor: "pointer" }} onClick={openLowStock}>
             <div className="label">Low Stock Items</div>
             <div className="value">{summary.lowStock}</div>
           </div>
@@ -516,22 +875,25 @@ export default function AdminDashboard({ onLogout }) {
         </div>
 
         <div className="grid">
-          <div className="panel panel-wide">
+          <div className={`panel panel-wide ${printPanelId === "analytics" ? "print-panel-area" : ""}`}>
             <div className="table-tools">
               <div>
                 <h3 style={{ margin: 0 }}>Sales Analytics (30 days)</h3>
-                <span style={{ color: "#64748b", fontSize: 12 }}>
+                <span style={{ color: "var(--text)", fontSize: 12 }}>
                   Revenue trend + top selling products
                 </span>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("analytics")}>
+                  Print
+                </button>
                 {!analyticsLoaded && (
-                  <button className="btn secondary" type="button" onClick={loadAnalytics} disabled={loading}>
+                  <button className="btn secondary print-hide" type="button" onClick={loadAnalytics} disabled={loading}>
                     Load Analytics
                   </button>
                 )}
                 {analyticsLoaded && (
-                  <button className="btn secondary" type="button" onClick={loadAnalytics} disabled={loading}>
+                  <button className="btn secondary print-hide" type="button" onClick={loadAnalytics} disabled={loading}>
                     Refresh Analytics
                   </button>
                 )}
@@ -539,7 +901,7 @@ export default function AdminDashboard({ onLogout }) {
             </div>
 
             {!analyticsLoaded && fastMode ? (
-              <div style={{ color: "#64748b", fontSize: 12 }}>
+              <div style={{ color: "var(--text)", fontSize: 12 }}>
                 Analytics is paused to keep startup fast. Click “Load Analytics” when needed.
               </div>
             ) : (
@@ -569,13 +931,13 @@ export default function AdminDashboard({ onLogout }) {
                     <div style={{ display: "grid", gap: 6 }}>
                       {(analytics?.daily || []).map((row) => (
                         <div key={row.date} style={{ display: "grid", gridTemplateColumns: "90px 1fr 70px", gap: 8, alignItems: "center" }}>
-                          <span style={{ fontSize: 12, color: "#64748b" }}>{row.date}</span>
-                          <div style={{ height: 8, background: "#e2e8f0", borderRadius: 999 }}>
+                          <span style={{ fontSize: 12, color: "var(--muted)" }}>{row.date}</span>
+                          <div style={{ height: 8, background: "var(--border)", borderRadius: 999 }}>
                             <div
                               style={{
                                 height: "100%",
                                 width: `${analytics?.totalRevenue ? Math.round((row.total / analytics.totalRevenue) * 100) : 0}%`,
-                                background: "#0f172a",
+                                background: "var(--accent)",
                                 borderRadius: 999,
                               }}
                             />
@@ -584,7 +946,7 @@ export default function AdminDashboard({ onLogout }) {
                         </div>
                       ))}
                       {(!analytics || analytics.daily?.length === 0) && (
-                        <div style={{ color: "#64748b", fontSize: 12 }}>No sales in the selected range.</div>
+                        <div style={{ color: "var(--muted)", fontSize: 12 }}>No sales in the selected range.</div>
                       )}
                     </div>
                   </div>
@@ -595,11 +957,11 @@ export default function AdminDashboard({ onLogout }) {
                       {(analytics?.topProducts || []).map((p) => (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <span style={{ fontSize: 13 }}>{p.name}</span>
-                          <span style={{ fontSize: 12, color: "#64748b" }}>{p.qty} sold</span>
+                          <span style={{ fontSize: 12, color: "var(--muted)" }}>{p.qty} sold</span>
                         </div>
                       ))}
                       {(!analytics || analytics.topProducts?.length === 0) && (
-                        <div style={{ color: "#64748b", fontSize: 12 }}>No products yet.</div>
+                        <div style={{ color: "var(--muted)", fontSize: 12 }}>No products yet.</div>
                       )}
                     </div>
                   </div>
@@ -608,8 +970,82 @@ export default function AdminDashboard({ onLogout }) {
             )}
           </div>
 
-          <div className="panel">
+          <div className={`panel panel-wide ${printPanelId === "recent-sales" ? "print-panel-area" : ""}`}>
+            <div className="table-tools">
+              <div>
+                <h3 style={{ margin: 0 }}>Recent Sales (Customer Details)</h3>
+                <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                  Latest sales with customer name, phone, and address
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("recent-sales")}>
+                  Print
+                </button>
+                {!salesLoaded && (
+                  <button className="btn secondary print-hide" type="button" onClick={loadSales} disabled={loading}>
+                    Load Sales
+                  </button>
+                )}
+                {salesLoaded && (
+                  <button className="btn secondary print-hide" type="button" onClick={loadSales} disabled={loading}>
+                    Refresh Sales
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!salesLoaded && fastMode ? (
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                Sales are paused to keep startup fast. Click "Load Sales" when needed.
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sale #</th>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sales || []).slice(0, 12).map((s) => {
+                    const customerName = s.customer?.name || s.customerName || "-";
+                    const customerPhone = s.customer?.phone || s.customerPhone || "-";
+                    const customerAddress = s.customer?.address || s.customerAddress || "-";
+                    return (
+                      <tr key={s.id}>
+                        <td>#{s.id}</td>
+                        <td>{s.createdAt ? new Date(s.createdAt).toLocaleString() : "-"}</td>
+                        <td>{customerName}</td>
+                        <td>{customerPhone}</td>
+                        <td>{customerAddress}</td>
+                        <td>{Math.round(Number(s.total || 0))}</td>
+                      </tr>
+                    );
+                  })}
+                  {(!sales || sales.length === 0) && (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: "center", padding: 16 }}>
+                        No sales found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className={`panel ${printPanelId === "add-product" ? "print-panel-area" : ""}`}>
             <h3>Add Product</h3>
+            <div style={{ marginBottom: 8 }}>
+              <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("add-product")}>
+                Print
+              </button>
+            </div>
             <form className="form" onSubmit={createProduct}>
               <div className="input-group">
                 <label>Barcode</label>
@@ -620,19 +1056,70 @@ export default function AdminDashboard({ onLogout }) {
                 <input value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
               <div className="input-group">
-                <label>Price</label>
+                <label>Invoice price</label>
                 <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} required />
+              </div>
+              <div className="input-group">
+                <label>Billing price</label>
+                <input type="number" value={billingPrice} onChange={(e) => setBillingPrice(e.target.value)} required />
               </div>
               <div className="input-group">
                 <label>Stock</label>
                 <input type="number" value={stock} onChange={(e) => setStock(e.target.value)} />
               </div>
+              <input
+  value={newSupplierName}
+  onChange={(e) => setNewSupplierName(e.target.value)}
+  placeholder="Supplier name"
+/>
+
+<input
+  value={newSupplierInvoiceNo}
+  onChange={(e) => setNewSupplierInvoiceNo(e.target.value)}
+  placeholder="Supplier invoice no"
+/>
+
+<input
+  type="date"
+  value={newReceivedDate}
+  onChange={(e) => setNewReceivedDate(e.target.value)}
+/>
+
+<label className="btn ghost" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+  📷 Invoice Photo
+  <input
+    type="file"
+    accept="image/*"
+    capture="environment"
+    style={{ display: "none" }}
+    onChange={async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => setNewInvoicePhoto(String(reader.result || ""));
+      reader.readAsDataURL(file);
+    }}
+  />
+</label>
+
+{newInvoicePhoto ? (
+  <div style={{ marginTop: 8 }}>
+    <img src={newInvoicePhoto} alt="Invoice preview" style={{ maxWidth: 240, borderRadius: 8 }} />
+  </div>
+) : null}
+
               <button className="btn" type="submit" disabled={loading}>Save Product</button>
             </form>
           </div>
 
-          <div className="panel">
+          <div className={`panel ${printPanelId === "create-user" ? "print-panel-area" : ""}`}>
             <h3>Create User</h3>
+            <div style={{ marginBottom: 8 }}>
+              <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("create-user")}>
+                Print
+              </button>
+            </div>
             <form className="form" onSubmit={createUser}>
               <div className="input-group">
                 <label>Username</label>
@@ -653,163 +1140,124 @@ export default function AdminDashboard({ onLogout }) {
             </form>
           </div>
 
-          <div className="panel panel-wide">
+          <div className={`panel ${printPanelId === "add-customer" ? "print-panel-area" : ""}`}>
+            <h3>Add Customer</h3>
+            <div style={{ marginBottom: 8 }}>
+              <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("add-customer")}>
+                Print
+              </button>
+            </div>
+            <form className="form" onSubmit={createCustomer}>
+              <div className="input-group">
+                <label>Name</label>
+                <input
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value.replace(/[^A-Za-z\s]/g, ""))}
+                  required
+                />
+              </div>
+              <div className="input-group">
+                <label>Phone</label>
+                <input
+                  value={customerPhone}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  onChange={(e) => setCustomerPhone(digitsOnly(e.target.value).slice(0, 10))}
+                  required
+                />
+              </div>
+              <div className="input-group">
+                <label>Address</label>
+                <input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} required />
+              </div>
+              <button
+                className="btn"
+                type="submit"
+                disabled={loading || digitsOnly(customerPhone).length !== 10 || !nameRegex.test(customerName.trim())}
+              >
+                Save Customer
+              </button>
+            </form>
+          </div>
+
+          <div className={`panel panel-wide ${printPanelId === "customers" ? "print-panel-area" : ""}`}>
             <div className="table-tools">
               <div>
-                <h3 style={{ margin: 0 }}>Products</h3>
-                <span style={{ color: "#64748b", fontSize: 12 }}>Search, edit, and delete items</span>
+                <h3 style={{ margin: 0 }}>Customers</h3>
+                <span style={{ color: "var(--muted)", fontSize: 12 }}>Saved customer details</span>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input placeholder="Search by name or barcode" value={query} onChange={(e) => setQuery(e.target.value)} />
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="name">Sort by name</option>
-                  <option value="price">Sort by price</option>
-                  <option value="stock">Sort by stock</option>
-                </select>
-                <select value={sortDir} onChange={(e) => setSortDir(e.target.value)}>
-                  <option value="asc">Ascending</option>
-                  <option value="desc">Descending</option>
-                </select>
-                {!productsLoaded && (
-                  <button className="btn secondary" type="button" onClick={() => loadProducts(0)} disabled={loading}>
-                    Load Products
+                <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("customers")}>
+                  Print
+                </button>
+                {!customersLoaded && (
+                  <button className="btn secondary print-hide" type="button" onClick={loadCustomers} disabled={loading}>
+                    Load Customers
                   </button>
                 )}
-                {productsLoaded && (
-                  <button className="btn secondary" type="button" onClick={() => loadProducts(page)} disabled={loading}>
-                    Refresh
+                {customersLoaded && (
+                  <button className="btn secondary print-hide" type="button" onClick={loadCustomers} disabled={loading}>
+                    Refresh Customers
                   </button>
                 )}
               </div>
             </div>
 
-            {!productsLoaded && fastMode ? (
-              <div style={{ color: "#64748b", fontSize: 12 }}>
-                Products are paused to keep startup fast. Click “Load Products” when needed.
+            {!customersLoaded && fastMode ? (
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                Customers are paused to keep startup fast. Click "Load Customers" when needed.
               </div>
             ) : (
-              <>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Barcode</th>
-                      <th>Name</th>
-                      <th>Price</th>
-                      <th>Stock</th>
-                      <th>Actions</th>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Outstanding</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(customers || []).map((c) => (
+                    <tr key={c.id}>
+                      <td>{c.name}</td>
+                      <td>{c.phone}</td>
+                      <td>{c.address}</td>
+                      <td>{Number(customerOutstanding?.[c.id] || 0) > 0 ? Math.round(Number(customerOutstanding[c.id])) : "-"}</td>
+                      <td>{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "-"}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {visibleProducts.map((p) => {
-                      const isEditing = editingBarcode === p.barcode;
-                      return (
-                        <tr key={p.barcode}>
-                          <td>{p.barcode}</td>
-                          <td>
-                            {isEditing ? (
-                              <input
-                                value={editValues.name}
-                                onChange={(e) => setEditValues((prev) => ({ ...prev, name: e.target.value }))}
-                              />
-                            ) : (
-                              p.name
-                            )}
-                          </td>
-                          <td>
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                value={editValues.price}
-                                onChange={(e) => setEditValues((prev) => ({ ...prev, price: e.target.value }))}
-                              />
-                            ) : (
-                              p.price
-                            )}
-                          </td>
-                          <td>
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                value={editValues.stock}
-                                onChange={(e) => setEditValues((prev) => ({ ...prev, stock: e.target.value }))}
-                              />
-                            ) : (
-                              p.stock
-                            )}
-                          </td>
-                          <td>
-                            {isEditing ? (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                <button className="btn" type="button" onClick={() => saveEdit(p.barcode)}>
-                                  Save
-                                </button>
-                                <button className="btn secondary" type="button" onClick={cancelEdit}>
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                <button className="btn secondary" type="button" onClick={() => startEdit(p)}>
-                                  Edit
-                                </button>
-                                <button className="btn ghost" type="button" onClick={() => deleteProduct(p.barcode)}>
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {visibleProducts.length === 0 && (
-                      <tr>
-                        <td colSpan="5" style={{ textAlign: "center", padding: 16 }}>
-                          No products match your filters
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontSize: 12 }}>
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={loading || page === 0}
-                    onClick={() => loadProducts(page - 1)}
-                  >
-                    Prev
-                  </button>
-                  <span>
-                    Page {page + 1} of {Math.max(1, Math.ceil(productsTotal / pageSize))}
-                  </span>
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={loading || (page + 1) * pageSize >= productsTotal}
-                    onClick={() => loadProducts(page + 1)}
-                  >
-                    Next
-                  </button>
-                </div>
-              </>
+                  ))}
+                  {(!customers || customers.length === 0) && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: "center", padding: 16 }}>
+                        No customers found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
 
-          <div className="panel panel-wide">
+          <div className={`panel panel-wide ${printPanelId === "users" ? "print-panel-area" : ""}`}>
             <div className="table-tools">
               <div>
                 <h3 style={{ margin: 0 }}>Users</h3>
-                <span style={{ color: "#64748b", fontSize: 12 }}>Manage access roles</span>
+                <span style={{ color: "var(--muted)", fontSize: 12 }}>Manage access roles</span>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn secondary print-hide" type="button" onClick={() => handlePrintPanel("users")}>
+                  Print
+                </button>
                 {!usersLoaded && (
-                  <button className="btn secondary" type="button" onClick={loadUsers} disabled={loading}>
+                  <button className="btn secondary print-hide" type="button" onClick={loadUsers} disabled={loading}>
                     Load Users
                   </button>
                 )}
                 {usersLoaded && (
-                  <button className="btn secondary" type="button" onClick={loadUsers} disabled={loading}>
+                  <button className="btn secondary print-hide" type="button" onClick={loadUsers} disabled={loading}>
                     Refresh Users
                   </button>
                 )}
@@ -817,7 +1265,7 @@ export default function AdminDashboard({ onLogout }) {
             </div>
 
             {!usersLoaded && fastMode ? (
-              <div style={{ color: "#64748b", fontSize: 12 }}>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>
                 Users are paused to keep startup fast. Click “Load Users” when needed.
               </div>
             ) : (
@@ -871,4 +1319,6 @@ export default function AdminDashboard({ onLogout }) {
       </div>
     </div>
   );
+
+
 }

@@ -50,7 +50,7 @@ export default function EndDay() {
   };
 
   return (
-    <div style={{ fontFamily: "Arial", padding: 20 }}>
+    <div className="page">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
         <h2 style={{ margin: 0 }}>🧾 End Day (Daily Close)</h2>
         <div style={{ display: "flex", gap: 10 }}>

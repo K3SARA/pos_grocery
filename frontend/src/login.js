@@ -1,107 +1,81 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "./api";
+import { apiFetch } from "./api"; // if your api file path differs, change it
 
 export default function Login({ onLogin }) {
-  const navigate = useNavigate();
-
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errMsg, setErrMsg] = useState("");
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
 
-  const submit = async (e) => {
+  async function submit(e) {
     e.preventDefault();
-    setErrMsg("");
-    setLoading(true);
+    setError("");
 
     try {
-      const data = await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
+      const login = async () =>
+        apiFetch("/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ username, password }),
+        });
+
+      let data;
+      try {
+        data = await login();
+      } catch (err) {
+        // auto-create first admin if no users exist, then retry login once
+        try {
+          await apiFetch("/auth/setup-admin", {
+            method: "POST",
+            body: JSON.stringify({ username, password }),
+          });
+          data = await login();
+        } catch {
+          throw err;
+        }
+      }
 
       localStorage.setItem("token", data.token);
-      localStorage.setItem("role", data.role);
 
-      onLogin(); // refresh App
-      navigate("/", { replace: true }); // ✅ redirect out of /login
+      const role = data.user?.role ?? data.role;
+      if (!role) throw new Error("Role missing from login response");
+      localStorage.setItem("role", role);
+
+      onLogin?.();
+      navigate(role === "admin" ? "/admin" : "/cashier", { replace: true });
     } catch (err) {
-      setErrMsg(err.message || "Login failed");
-    } finally {
-      setLoading(false);
+      setError(err?.message || "Login failed");
     }
-  };
+  }
 
   return (
-    <div
-      style={{
-        fontFamily: "Arial",
-        minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        background: "#f5f5f5",
-      }}
-    >
-      <div
-        style={{
-          width: 360,
-          padding: 20,
-          border: "1px solid #ddd",
-          borderRadius: 10,
-          background: "white",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>🔐 POS Login</h2>
+    <div className="auth-page">
+      <h2>POS Login</h2>
 
-        <form onSubmit={submit}>
-          <div style={{ marginBottom: 12 }}>
-            <label>Username</label>
-            <input
-              style={{ width: "100%", padding: 10, marginTop: 6 }}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin / cashier1"
-              autoComplete="username"
-            />
-          </div>
+      <form onSubmit={submit}>
+        <div style={{ marginBottom: 10 }}>
+          <label>Username</label>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={{ width: "100%", padding: 10 }}
+          />
+        </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <label>Password</label>
-            <input
-              style={{ width: "100%", padding: 10, marginTop: 6 }}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-              autoComplete="current-password"
-            />
-          </div>
+        <div style={{ marginBottom: 10 }}>
+          <label>Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ width: "100%", padding: 10 }}
+          />
+        </div>
 
-          {errMsg && (
-            <div style={{ marginBottom: 12, color: "crimson" }}>{errMsg}</div>
-          )}
+        {error ? <div style={{ color: "red", marginBottom: 10 }}>{error}</div> : null}
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: 12,
-              fontSize: 16,
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Logging in..." : "Login"}
-          </button>
-        </form>
-
-        <p style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
-          Tip: login as <b>admin</b> to manage products/users. Cashier can do
-          sales.
-        </p>
-      </div>
+        <button style={{ width: "100%", padding: 12 }}>Login</button>
+      </form>
     </div>
   );
 }

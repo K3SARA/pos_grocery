@@ -92,6 +92,18 @@ export default function CashierScreen() {
       .slice(0, 25);
   }, [products, query]);
 
+  const barcodeSuggestions = useMemo(() => {
+    const q = barcode.trim().toLowerCase();
+    if (!q) return [];
+    return products
+      .filter((p) => {
+        const name = String(p.name || "").toLowerCase();
+        const code = String(p.barcode || "").toLowerCase();
+        return code.includes(q) || name.includes(q);
+      })
+      .slice(0, 8);
+  }, [products, barcode]);
+
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
   }, [cart]);
@@ -110,15 +122,50 @@ export default function CashierScreen() {
 
   const total = Math.max(0, subtotal - discountAmount);
 
-  function addToCartByBarcode(code) {
-    const clean = String(code || "").trim();
+  function normalizeBarcode(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s+/g, "")
+      .toLowerCase();
+  }
+
+  function getCartQty(code) {
+    return cart.reduce((sum, item) => {
+      if (item.barcode === code) return sum + Number(item.qty || 0);
+      return sum;
+    }, 0);
+  }
+
+  async function addToCartByBarcode(code) {
+    const clean = normalizeBarcode(code);
     if (!clean) return;
-    const product = products.find((p) => String(p.barcode) === clean);
+
+    let product = products.find((p) => normalizeBarcode(p.barcode) === clean);
+
+    // Fallback: fetch directly from backend in case local list is stale.
+    if (!product) {
+      try {
+        const exactCode = String(code || "").trim().replace(/\s+/g, "");
+        const fetched = await apiFetch(`/products/${encodeURIComponent(exactCode)}`);
+        if (fetched?.barcode) {
+          product = fetched;
+          setProducts((prev) => {
+            const exists = prev.some((p) => normalizeBarcode(p.barcode) === normalizeBarcode(fetched.barcode));
+            return exists ? prev : [fetched, ...prev];
+          });
+        }
+      } catch {
+        // keep default not-found error below
+      }
+    }
+
     if (!product) {
       setError("Product not found");
       return;
     }
-    if (Number(product.stock || 0) < 1) {
+
+    const inCartQty = getCartQty(product.barcode);
+    if (Number(product.stock || 0) <= inCartQty) {
       setError("Out of stock");
       return;
     }
@@ -220,10 +267,30 @@ export default function CashierScreen() {
             onChangeText={setBarcode}
             placeholder="Barcode"
           />
-          <Pressable style={styles.action} onPress={() => addToCartByBarcode(barcode)}>
+          <Pressable style={styles.action} onPress={() => void addToCartByBarcode(barcode)}>
             <Text style={styles.actionText}>Add</Text>
           </Pressable>
         </View>
+        {barcodeSuggestions.length > 0 ? (
+          <View style={styles.suggestBox}>
+            {barcodeSuggestions.map((item) => {
+              const inCartQty = getCartQty(item.barcode);
+              return (
+                <Pressable
+                  key={String(item.id || item.barcode)}
+                  style={styles.suggestRow}
+                  onPress={() => void addToCartByBarcode(item.barcode)}
+                >
+                  <Text style={styles.listName}>{item.name}</Text>
+                  <Text style={styles.listMeta}>
+                    {item.barcode} | Stock: {Number(item.stock || 0)} | Price: {Number(item.price || 0)}
+                    {inCartQty > 0 ? ` | In cart: ${inCartQty}` : ""}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         <TextInput
           style={styles.input}
           value={query}
@@ -235,7 +302,7 @@ export default function CashierScreen() {
           keyExtractor={(item) => String(item.id || item.barcode)}
           scrollEnabled={false}
           renderItem={({ item }) => (
-            <Pressable style={styles.listRow} onPress={() => addToCartByBarcode(item.barcode)}>
+            <Pressable style={styles.listRow} onPress={() => void addToCartByBarcode(item.barcode)}>
               <View>
                 <Text style={styles.listName}>{item.name}</Text>
                 <Text style={styles.listMeta}>
@@ -373,6 +440,20 @@ const styles = StyleSheet.create({
   actionText: {
     color: "#fff",
     fontWeight: "700",
+  },
+  suggestBox: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    marginBottom: 8,
+    overflow: "hidden",
+  },
+  suggestRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomColor: "#f1f5f9",
+    borderBottomWidth: 1,
   },
   listRow: {
     paddingVertical: 8,
