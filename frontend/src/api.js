@@ -1,10 +1,7 @@
 /* eslint-env browser */
 
 const API =
-  (process.env.REACT_APP_API_URL || "https://posgrocery-production.up.railway.app").replace(
-    /\/+$/,
-    ""
-  );
+    (process.env.REACT_APP_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
 
 

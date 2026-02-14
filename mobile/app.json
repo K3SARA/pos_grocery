@@ -14,6 +14,15 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#f4f4f5"
+      },
+      "package": "com.posgrocery.mobile"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f7d76135-bbaa-41f8-b885-089f4edf0471"
       }
     }
   }

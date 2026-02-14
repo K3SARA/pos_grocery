@@ -18,6 +18,15 @@ export default function Stock() {
   const [page, setPage] = useState(0);
   const pageSize = 25;
   const [productsLoaded, setProductsLoaded] = useState(false);
+  const [previewImage, setPreviewImage] = useState("");
+
+  const normalizeInvoicePhoto = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    if (raw.startsWith("data:image/")) return raw;
+    if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("file://")) return raw;
+    return `data:image/jpeg;base64,${raw}`;
+  };
 
   const loadProducts = useCallback(async (nextPage = 0) => {
     setMsg("");
@@ -281,7 +290,7 @@ export default function Stock() {
 
           {!productsLoaded ? (
             <div style={{ color: "var(--muted)", fontSize: 12 }}>
-              Products are paused to keep startup fast. Click “Load Products” when needed.
+              Products are paused to keep startup fast. Click ???Load Products??? when needed.
             </div>
           ) : (
             <>
@@ -356,9 +365,22 @@ export default function Stock() {
                         <td>{p.receivedDate ? new Date(p.receivedDate).toLocaleDateString() : "-"}</td>
                         <td>
                           {p.invoicePhoto ? (
-                            <button className="btn ghost" type="button" onClick={() => window.open(p.invoicePhoto, "_blank")}>
-                              📷
-                            </button>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              <button
+                                className="btn ghost"
+                                type="button"
+                                onClick={() => setPreviewImage(normalizeInvoicePhoto(p.invoicePhoto))}
+                              >
+                                View
+                              </button>
+                              <button
+                                className="btn ghost"
+                                type="button"
+                                onClick={() => window.open(normalizeInvoicePhoto(p.invoicePhoto), "_blank")}
+                              >
+                                Open
+                              </button>
+                            </div>
                           ) : "-"}
                         </td>
                         <td>
@@ -420,6 +442,30 @@ export default function Stock() {
           )}
         </div>
       </div>
+
+      {previewImage ? (
+        <div className="overlay" onClick={() => setPreviewImage("")}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Invoice Photo</h3>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <img
+                src={previewImage}
+                alt="Invoice"
+                style={{ maxWidth: "100%", maxHeight: "65vh", borderRadius: 8, border: "1px solid var(--border)" }}
+              />
+            </div>
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn secondary" type="button" onClick={() => window.open(previewImage, "_blank")}>
+                Open in New Tab
+              </button>
+              <button className="btn" type="button" onClick={() => setPreviewImage("")}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
+

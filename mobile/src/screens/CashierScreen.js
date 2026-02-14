@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -107,9 +106,10 @@ function CartRow({ item, onQtyChange, onRemove }) {
 }
 
 export default function CashierScreen() {
-  const { username } = useAuth();
+  const { username, role } = useAuth();
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [outstandingMap, setOutstandingMap] = useState({});
   const [cart, setCart] = useState([]);
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
@@ -129,22 +129,39 @@ export default function CashierScreen() {
   const [showCustomerPhoneDropdown, setShowCustomerPhoneDropdown] = useState(false);
   const [selectedItemRow, setSelectedItemRow] = useState("");
   const [selectedCustomerRow, setSelectedCustomerRow] = useState("");
+  const [selectedBrowseRow, setSelectedBrowseRow] = useState("");
+  const [activeTouchRow, setActiveTouchRow] = useState("");
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [lastReceipt, setLastReceipt] = useState(null);
+  const [dayStarted, setDayStarted] = useState(false);
+  const [dayRoute, setDayRoute] = useState("");
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [routeInput, setRouteInput] = useState("");
+  const [routes, setRoutes] = useState([]);
+  const [dayStatusLoading, setDayStatusLoading] = useState(true);
+  const requiresStartDay = role === "cashier";
+  const canUseCashierActions = !requiresStartDay || (dayStarted && !dayStatusLoading);
 
-  const anyDropdownOpen = showItemDropdown || showCustomerNameDropdown || showCustomerPhoneDropdown;
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [productsData, customersData] = await Promise.all([
+      const [productsData, customersData, outstandingData] = await Promise.all([
         apiFetch("/products"),
         apiFetch("/customers"),
+        apiFetch("/reports/customer-outstanding"),
       ]);
       const productList = Array.isArray(productsData) ? productsData : productsData?.items || [];
       setProducts(productList);
       setCustomers(Array.isArray(customersData) ? customersData : []);
+      const map = {};
+      (outstandingData?.rows || []).forEach((row) => {
+        if (row?.customerId) {
+          map[row.customerId] = Number(row.outstanding || 0);
+        }
+      });
+      setOutstandingMap(map);
     } catch (e) {
       setError(e.message || "Failed to load cashier data");
     } finally {
@@ -155,6 +172,42 @@ export default function CashierScreen() {
   React.useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const loadDayStatus = useCallback(async () => {
+    setDayStatusLoading(true);
+    try {
+      const [data, routeRows] = await Promise.all([
+        apiFetch("/cashier/day/status"),
+        apiFetch("/routes"),
+      ]);
+      setDayStarted(Boolean(data?.started));
+      setDayRoute(String(data?.session?.route || ""));
+      setRoutes(Array.isArray(routeRows) ? routeRows : []);
+      setShowRouteModal(!Boolean(data?.started));
+      if (data?.started) {
+        setRouteInput(String(data?.session?.route || ""));
+      } else {
+        setRouteInput("");
+      }
+    } catch {
+      setDayStarted(false);
+      setDayRoute("");
+      setRoutes([]);
+      setShowRouteModal(true);
+    } finally {
+      setDayStatusLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!requiresStartDay) {
+      setDayStarted(true);
+      setShowRouteModal(false);
+      setDayStatusLoading(false);
+      return;
+    }
+    loadDayStatus();
+  }, [loadDayStatus, requiresStartDay]);
 
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -210,7 +263,12 @@ export default function CashierScreen() {
     [customers, selectedCustomerId]
   );
 
-  const customerOutstandingNow = selectedCustomer ? parseOutstanding(selectedCustomer.notes) : 0;
+  const customerOutstandingNow = selectedCustomer
+    ? Math.max(
+        Number(outstandingMap[selectedCustomer.id] || 0),
+        parseOutstanding(selectedCustomer.notes)
+      )
+    : 0;
 
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
@@ -250,7 +308,62 @@ export default function CashierScreen() {
     }, 0);
   }
 
+  function ensureDayStartedForAction() {
+    if (!requiresStartDay) return true;
+    if (dayStarted) return true;
+    setError("Tap Start Day and select route before billing.");
+    setShowRouteModal(true);
+    return false;
+  }
+
+  async function startDay() {
+    const route = String(routeInput || "").trim();
+    if (!route) {
+      setError("Route is required");
+      return;
+    }
+    const exists = routes.some((r) => String(r?.name || "") === route && Boolean(r?.isActive));
+    if (!exists) {
+      setError("Select a valid active route");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      await apiFetch("/cashier/day/start", {
+        method: "POST",
+        body: JSON.stringify({ route }),
+      });
+      setDayStarted(true);
+      setDayRoute(route);
+      setShowRouteModal(false);
+      setMessage(`Day started (${route})`);
+    } catch (e) {
+      setError(e.message || "Failed to start day");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function endDay() {
+    try {
+      setLoading(true);
+      setError("");
+      await apiFetch("/cashier/day/end", { method: "POST" });
+      setDayStarted(false);
+      setDayRoute("");
+      setRouteInput("");
+      setShowRouteModal(true);
+      setMessage("Day ended");
+    } catch (e) {
+      setError(e.message || "Failed to end day");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function addToCartByBarcode(code) {
+    if (!ensureDayStartedForAction()) return;
     const clean = normalizeBarcode(code);
     if (!clean) return;
 
@@ -297,6 +410,7 @@ export default function CashierScreen() {
   }
 
   function changeQty(code, nextQty) {
+    if (!ensureDayStartedForAction()) return;
     const qty = Number(nextQty || 0);
     if (!Number.isFinite(qty) || qty < 1) return;
     const product = products.find((p) => p.barcode === code);
@@ -309,10 +423,12 @@ export default function CashierScreen() {
   }
 
   function removeItem(code) {
+    if (!ensureDayStartedForAction()) return;
     setCart((prev) => prev.filter((item) => item.barcode !== code));
   }
 
   function chooseCustomer(customer) {
+    if (!ensureDayStartedForAction()) return;
     setSelectedCustomerId(customer.id);
     setCustomerName(customer.name || "");
     setCustomerPhone(customer.phone || "");
@@ -337,12 +453,14 @@ export default function CashierScreen() {
         }),
       });
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      setOutstandingMap((prev) => ({ ...prev, [selectedCustomerId]: Number(newOutstanding || 0) }));
     } catch {
       // keep sale success even if notes update fails
     }
   }
 
   async function completeSale() {
+    if (!ensureDayStartedForAction()) return;
     if (cart.length === 0) {
       setError("Cart is empty");
       return;
@@ -362,9 +480,10 @@ export default function CashierScreen() {
           barcode: item.barcode,
           qty: Number(item.qty || 0),
         })),
-        paymentMethod: paymentMethod === "cash" && saleOutstanding > 0 ? "credit" : paymentMethod,
+        paymentMethod,
         discountType,
         discountValue: Number(discountValue || 0),
+        cashReceived: paymentMethod === "cash" ? normalizedCashReceived : 0,
       };
 
       if (customerName.trim()) {
@@ -398,6 +517,18 @@ export default function CashierScreen() {
       setShowPrintPreview(true);
 
       setCart([]);
+      setBarcode("");
+      setQuery("");
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setSelectedCustomerId(null);
+      setSelectedItemRow("");
+      setSelectedCustomerRow("");
+      setActiveTouchRow("");
+      setShowItemDropdown(false);
+      setShowCustomerNameDropdown(false);
+      setShowCustomerPhoneDropdown(false);
       setDiscountType("none");
       setDiscountValue("");
       setPaymentMethod("cash");
@@ -421,9 +552,40 @@ export default function CashierScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      {anyDropdownOpen ? <Pressable style={styles.dropdownBackdrop} onPress={closeAllDropdowns} /> : null}
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 16 }}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 16 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.heading}>Cashier | {username || "User"}</Text>
+        {requiresStartDay ? (
+          <View style={styles.dayBar}>
+            <Text style={styles.dayStatusText}>
+              {dayStatusLoading
+                ? "Checking day status..."
+                : dayStarted
+                  ? `Day Started - Route: ${dayRoute || "-"}`
+                  : "Day Not Started"}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {!dayStarted ? (
+                <Pressable style={styles.smallBtn} onPress={() => setShowRouteModal(true)}>
+                  <Text style={styles.smallBtnText}>Start Day</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={[styles.smallBtn, styles.smallBtnDanger]}
+                  onPress={endDay}
+                >
+                  <Text style={styles.smallBtnText}>End Day</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        ) : null}
+        {requiresStartDay && !dayStarted && !dayStatusLoading ? (
+          <Text style={styles.dayWarn}>Cashier actions are locked until Start Day is completed.</Text>
+        ) : null}
         {loading ? <ActivityIndicator style={{ marginBottom: 10 }} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {message ? <Text style={styles.success}>{message}</Text> : null}
@@ -441,16 +603,26 @@ export default function CashierScreen() {
                 setShowCustomerPhoneDropdown(false);
               }}
               onFocus={() => setShowItemDropdown(true)}
+              onBlur={() => setTimeout(() => setShowItemDropdown(false), 120)}
               placeholder="Barcode"
+              editable={canUseCashierActions}
             />
-            <Pressable style={styles.action} onPress={() => void addToCartByBarcode(barcode)}>
+            <Pressable
+              style={[styles.action, !canUseCashierActions && styles.btnDisabled]}
+              onPress={() => void addToCartByBarcode(barcode)}
+              disabled={!canUseCashierActions}
+            >
               <Text style={styles.actionText}>Add</Text>
             </Pressable>
           </View>
 
           {showItemDropdown ? (
             <View style={styles.suggestBox}>
-              <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="always"
+                style={{ maxHeight: 240 }}
+              >
                 {barcodeSuggestions.length === 0 ? (
                   <Text style={styles.suggestEmpty}>No in-stock items found</Text>
                 ) : (
@@ -460,11 +632,17 @@ export default function CashierScreen() {
                     return (
                       <Pressable
                         key={key}
-                        style={({ pressed }) => [
+                        style={[
                           styles.suggestRow,
-                          pressed && styles.suggestRowPressed,
+                          activeTouchRow === `item-${key}` && styles.suggestRowPressed,
                           selectedItemRow === key && styles.suggestRowSelected,
                         ]}
+                        onPressIn={() => {
+                          setActiveTouchRow(`item-${key}`);
+                        }}
+                        onPressOut={() => {
+                          setActiveTouchRow("");
+                        }}
                         onPress={() => {
                           setSelectedItemRow(key);
                           void addToCartByBarcode(item.barcode);
@@ -488,22 +666,38 @@ export default function CashierScreen() {
             value={query}
             onChangeText={setQuery}
             placeholder="Search product"
+            editable={canUseCashierActions}
           />
-          <FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => String(item.id || item.barcode)}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <Pressable style={styles.listRow} onPress={() => void addToCartByBarcode(item.barcode)}>
-                <View>
-                  <Text style={styles.listName}>{item.name}</Text>
-                  <Text style={styles.listMeta}>
-                    {item.barcode} | Stock: {Number(item.stock || 0)} | Price: {Number(item.price || 0)}
-                  </Text>
-                </View>
-              </Pressable>
-            )}
-          />
+          <View style={styles.browseListWrap}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="always">
+              {filteredProducts.map((item) => {
+                const browseKey = `browse-${String(item.id || item.barcode)}`;
+                return (
+                  <Pressable
+                    key={String(item.id || item.barcode)}
+                    style={[
+                      styles.listRow,
+                      activeTouchRow === browseKey && styles.listRowPressed,
+                      selectedBrowseRow === browseKey && styles.listRowSelected,
+                    ]}
+                    onPressIn={() => setActiveTouchRow(browseKey)}
+                    onPressOut={() => setActiveTouchRow("")}
+                    onPress={() => {
+                      setSelectedBrowseRow(browseKey);
+                      void addToCartByBarcode(item.barcode);
+                    }}
+                  >
+                    <View>
+                      <Text style={styles.listName}>{item.name}</Text>
+                      <Text style={styles.listMeta}>
+                        {item.barcode} | Stock: {Number(item.stock || 0)} | Price: {Number(item.price || 0)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
 
         <View style={[styles.panel, { zIndex: 10 }]}>
@@ -523,22 +717,30 @@ export default function CashierScreen() {
               setShowItemDropdown(false);
               setShowCustomerPhoneDropdown(false);
             }}
+            onBlur={() => setTimeout(() => setShowCustomerNameDropdown(false), 120)}
             placeholder="Name (optional)"
+            editable={canUseCashierActions}
           />
           {showCustomerNameDropdown ? (
             <View style={styles.suggestBox}>
-              <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="always"
+                style={{ maxHeight: 220 }}
+              >
                 {customerNameSuggestions.length === 0 ? (
                   <Text style={styles.suggestEmpty}>No customers found</Text>
                 ) : (
                   customerNameSuggestions.map((customer) => (
                     <Pressable
                       key={customer.id}
-                      style={({ pressed }) => [
+                      style={[
                         styles.suggestRow,
-                        pressed && styles.suggestRowPressed,
+                        activeTouchRow === `cname-${customer.id}` && styles.suggestRowPressed,
                         selectedCustomerRow === customer.id && styles.suggestRowSelected,
                       ]}
+                      onPressIn={() => setActiveTouchRow(`cname-${customer.id}`)}
+                      onPressOut={() => setActiveTouchRow("")}
                       onPress={() => chooseCustomer(customer)}
                     >
                       <Text style={styles.listName}>{customer.name}</Text>
@@ -565,22 +767,30 @@ export default function CashierScreen() {
               setShowItemDropdown(false);
               setShowCustomerNameDropdown(false);
             }}
+            onBlur={() => setTimeout(() => setShowCustomerPhoneDropdown(false), 120)}
             placeholder="Phone"
+            editable={canUseCashierActions}
           />
           {showCustomerPhoneDropdown ? (
             <View style={styles.suggestBox}>
-              <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="always"
+                style={{ maxHeight: 220 }}
+              >
                 {customerPhoneSuggestions.length === 0 ? (
                   <Text style={styles.suggestEmpty}>No customers found</Text>
                 ) : (
                   customerPhoneSuggestions.map((customer) => (
                     <Pressable
                       key={customer.id}
-                      style={({ pressed }) => [
+                      style={[
                         styles.suggestRow,
-                        pressed && styles.suggestRowPressed,
+                        activeTouchRow === `cphone-${customer.id}` && styles.suggestRowPressed,
                         selectedCustomerRow === customer.id && styles.suggestRowSelected,
                       ]}
+                      onPressIn={() => setActiveTouchRow(`cphone-${customer.id}`)}
+                      onPressOut={() => setActiveTouchRow("")}
                       onPress={() => chooseCustomer(customer)}
                     >
                       <Text style={styles.listName}>{customer.name}</Text>
@@ -592,22 +802,38 @@ export default function CashierScreen() {
             </View>
           ) : null}
 
-          <TextInput style={styles.input} value={customerAddress} onChangeText={setCustomerAddress} placeholder="Address" />
-          <Text style={styles.customerOutLine}>Customer Outstanding: {Math.round(customerOutstandingNow)}</Text>
+          <TextInput
+            style={styles.input}
+            value={customerAddress}
+            onChangeText={setCustomerAddress}
+            placeholder="Address"
+            editable={canUseCashierActions}
+          />
+          <Text
+            style={[
+              styles.customerOutLine,
+              customerOutstandingNow > 0 ? styles.customerOutLineWarn : null,
+            ]}
+          >
+            Customer Outstanding: {Math.round(customerOutstandingNow)}
+          </Text>
           <Text style={styles.customerOutLine}>After This Sale: {Math.round(customerOutstandingAfterSale)}</Text>
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Cart</Text>
-          <FlatList
-            data={cart}
-            keyExtractor={(item) => String(item.barcode)}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <CartRow item={item} onQtyChange={changeQty} onRemove={removeItem} />
-            )}
-            ListEmptyComponent={<Text style={styles.empty}>Cart is empty</Text>}
-          />
+          {cart.length === 0 ? (
+            <Text style={styles.empty}>Cart is empty</Text>
+          ) : (
+            cart.map((item) => (
+              <CartRow
+                key={String(item.barcode)}
+                item={item}
+                onQtyChange={changeQty}
+                onRemove={removeItem}
+              />
+            ))
+          )}
         </View>
 
         <View style={styles.panel}>
@@ -617,11 +843,17 @@ export default function CashierScreen() {
             {["cash", "card", "credit", "check"].map((method) => (
               <Pressable
                 key={method}
-                style={[styles.methodChip, paymentMethod === method && styles.methodChipActive]}
+                style={[
+                  styles.methodChip,
+                  paymentMethod === method && styles.methodChipActive,
+                  !canUseCashierActions && styles.btnDisabled,
+                ]}
                 onPress={() => {
+                  if (!ensureDayStartedForAction()) return;
                   setPaymentMethod(method);
                   if (method === "credit") setCashReceived("");
                 }}
+                disabled={!canUseCashierActions}
               >
                 <Text style={[styles.methodText, paymentMethod === method && styles.methodTextActive]}>{method}</Text>
               </Pressable>
@@ -637,6 +869,7 @@ export default function CashierScreen() {
                 onChangeText={setCashReceived}
                 placeholder="Enter received cash"
                 keyboardType="numeric"
+                editable={canUseCashierActions}
               />
             </>
           ) : null}
@@ -646,8 +879,16 @@ export default function CashierScreen() {
             {["none", "amount", "percent"].map((type) => (
               <Pressable
                 key={type}
-                style={[styles.methodChip, discountType === type && styles.methodChipActive]}
-                onPress={() => setDiscountType(type)}
+                style={[
+                  styles.methodChip,
+                  discountType === type && styles.methodChipActive,
+                  !canUseCashierActions && styles.btnDisabled,
+                ]}
+                onPress={() => {
+                  if (!ensureDayStartedForAction()) return;
+                  setDiscountType(type);
+                }}
+                disabled={!canUseCashierActions}
               >
                 <Text style={[styles.methodText, discountType === type && styles.methodTextActive]}>{type}</Text>
               </Pressable>
@@ -657,7 +898,7 @@ export default function CashierScreen() {
             style={styles.input}
             value={discountValue}
             onChangeText={setDiscountValue}
-            editable={discountType !== "none"}
+            editable={discountType !== "none" && canUseCashierActions}
             placeholder={discountType === "percent" ? "Percent" : "Amount"}
             keyboardType="numeric"
           />
@@ -667,11 +908,61 @@ export default function CashierScreen() {
           <Text style={styles.grandTotal}>Bill Total: {Math.round(billTotal)}</Text>
           <Text style={styles.total}>Cash Received: {Math.round(normalizedCashReceived)}</Text>
           <Text style={styles.total}>This Sale Outstanding: {Math.round(saleOutstanding)}</Text>
-          <Pressable style={styles.completeButton} onPress={completeSale}>
+          <Pressable
+            style={[styles.completeButton, !canUseCashierActions && styles.btnDisabled]}
+            onPress={completeSale}
+            disabled={!canUseCashierActions}
+          >
             <Text style={styles.completeText}>Complete Sale</Text>
           </Pressable>
         </View>
       </ScrollView>
+
+      <Modal visible={requiresStartDay && showRouteModal} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Start Day</Text>
+            <Text style={styles.meta}>Select Route (admin managed, required once per day)</Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              {routes.length === 0 ? (
+                <Text style={styles.error}>No active routes. Ask admin to add routes.</Text>
+              ) : (
+                routes
+                  .filter((r) => Boolean(r?.isActive))
+                  .map((r) => {
+                    const name = String(r?.name || "");
+                    const active = routeInput === name;
+                    return (
+                      <Pressable
+                        key={String(r?.id || name)}
+                        style={[styles.methodChip, active && styles.methodChipActive]}
+                        onPress={() => setRouteInput(name)}
+                      >
+                        <Text style={[styles.methodText, active && styles.methodTextActive]}>{name}</Text>
+                      </Pressable>
+                    );
+                  })
+              )}
+            </View>
+            {routeInput ? <Text style={styles.meta}>Selected Route: {routeInput}</Text> : null}
+            <View style={styles.modalActions}>
+              <Pressable
+                style={[styles.action, (!routeInput || routes.length === 0) && styles.btnDisabled]}
+                onPress={startDay}
+                disabled={!routeInput || routes.length === 0}
+              >
+                <Text style={styles.actionText}>Start Day</Text>
+              </Pressable>
+              <Pressable style={styles.closeBtn} onPress={() => setShowRouteModal(false)}>
+                <Text style={styles.closeBtnText}>Close</Text>
+              </Pressable>
+            </View>
+            {!dayStarted ? (
+              <Text style={[styles.meta, { marginTop: 8 }]}>Cashier actions stay locked until Start Day.</Text>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={showPrintPreview} transparent animationType="fade" onRequestClose={() => setShowPrintPreview(false)}>
         <View style={styles.modalBackdrop}>
@@ -706,6 +997,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
     marginBottom: 10,
+  },
+  dayBar: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e5e7eb",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  dayStatusText: {
+    color: "#111827",
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  smallBtn: {
+    backgroundColor: "#1d4ed8",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  smallBtnDanger: {
+    backgroundColor: "#b91c1c",
+  },
+  smallBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  dayWarn: {
+    color: "#b91c1c",
+    marginBottom: 8,
+    fontWeight: "600",
   },
   panel: {
     backgroundColor: "#ffffff",
@@ -746,10 +1074,8 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
   },
-  dropdownBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-    zIndex: 1,
+  btnDisabled: {
+    opacity: 0.5,
   },
   suggestBox: {
     borderWidth: 1,
@@ -765,12 +1091,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderBottomColor: "#f1f5f9",
     borderBottomWidth: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: "transparent",
   },
   suggestRowPressed: {
-    backgroundColor: "#e0e7ff",
+    backgroundColor: "#dbeafe",
+    borderLeftColor: "#2563eb",
   },
   suggestRowSelected: {
-    backgroundColor: "#dbeafe",
+    backgroundColor: "#bfdbfe",
+    borderLeftColor: "#1d4ed8",
   },
   suggestEmpty: {
     padding: 10,
@@ -778,8 +1108,26 @@ const styles = StyleSheet.create({
   },
   listRow: {
     paddingVertical: 8,
+    paddingHorizontal: 4,
     borderBottomColor: "#f1f5f9",
     borderBottomWidth: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: "transparent",
+  },
+  listRowPressed: {
+    backgroundColor: "#dbeafe",
+    borderLeftColor: "#2563eb",
+  },
+  listRowSelected: {
+    backgroundColor: "#bfdbfe",
+    borderLeftColor: "#1d4ed8",
+  },
+  browseListWrap: {
+    maxHeight: 260,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    overflow: "hidden",
   },
   listName: {
     fontWeight: "600",
@@ -793,6 +1141,9 @@ const styles = StyleSheet.create({
     color: "#1f2937",
     fontWeight: "600",
     marginBottom: 4,
+  },
+  customerOutLineWarn: {
+    color: "#b91c1c",
   },
   cartRow: {
     flexDirection: "row",

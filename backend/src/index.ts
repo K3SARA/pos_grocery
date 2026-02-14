@@ -63,6 +63,52 @@ const requireAnyRole = (...roles: Array<"admin" | "cashier">) => {
   };
 };
 
+function getReqUserId(req: any): number | null {
+  const direct = Number(req?.user?.id);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const legacy = Number(req?.user?.userId);
+  if (Number.isFinite(legacy) && legacy > 0) return legacy;
+  return null;
+}
+
+function getDayKey(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+async function autoEndExpiredCashierDays(userId: number) {
+  const today = getDayKey();
+  await prisma.cashierDay.updateMany({
+    where: {
+      userId,
+      endedAt: null,
+      dayKey: { not: today },
+    },
+    data: {
+      endedAt: new Date(),
+      autoEnded: true,
+    },
+  });
+}
+
+async function ensureCashierDayStarted(userId: number) {
+  await autoEndExpiredCashierDays(userId);
+  const today = getDayKey();
+  return prisma.cashierDay.findFirst({
+    where: { userId, dayKey: today, endedAt: null },
+    orderBy: { startedAt: "desc" },
+  });
+}
+
+function parseDateOnly(value: string): Date | null {
+  const safe = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(safe)) return null;
+  const dt = new Date(`${safe}T00:00:00`);
+  return Number.isFinite(dt.getTime()) ? dt : null;
+}
+
 
 // ------------------- ROOT -------------------
 app.get("/", (req, res) => {
@@ -262,6 +308,211 @@ app.delete("/users/:id", auth, requireRole("admin"), async (req, res) => {
   }
 });
 
+// ------------------- CASHIER DAY SESSION -------------------
+
+app.get("/routes", auth, requireAnyRole("admin", "cashier"), async (req: AuthedRequest, res) => {
+  try {
+    const isAdmin = String(req.user?.role || "") === "admin";
+    const routes = await prisma.route.findMany({
+      where: isAdmin ? {} : { isActive: true },
+      orderBy: { name: "asc" },
+    });
+    return res.json(routes);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to load routes" });
+  }
+});
+
+app.post("/admin/routes", auth, requireRole("admin"), async (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Route name is required" });
+  try {
+    const created = await prisma.route.create({
+      data: { name, isActive: true },
+    });
+    return res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code === "P2002") return res.status(400).json({ error: "Route already exists" });
+    return res.status(500).json({ error: e.message || "Failed to create route" });
+  }
+});
+
+app.put("/admin/routes/:id", auth, requireRole("admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid route id" });
+  const name = req.body?.name !== undefined ? String(req.body?.name || "").trim() : undefined;
+  const isActive = req.body?.isActive;
+  if (name !== undefined && !name) return res.status(400).json({ error: "Route name cannot be empty" });
+  try {
+    const updated = await prisma.route.update({
+      where: { id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+      },
+    });
+    return res.json(updated);
+  } catch (e: any) {
+    if (e?.code === "P2025") return res.status(404).json({ error: "Route not found" });
+    if (e?.code === "P2002") return res.status(400).json({ error: "Route already exists" });
+    return res.status(500).json({ error: e.message || "Failed to update route" });
+  }
+});
+
+app.get("/cashier/day/status", auth, requireRole("cashier"), async (req: AuthedRequest, res) => {
+  const userId = getReqUserId(req);
+  if (!userId) return res.status(401).json({ error: "No user id" });
+  try {
+    const session = await ensureCashierDayStarted(userId);
+    return res.json({
+      started: Boolean(session),
+      session: session || null,
+      dayKey: getDayKey(),
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to load cashier day status" });
+  }
+});
+
+app.post("/cashier/day/start", auth, requireRole("cashier"), async (req: AuthedRequest, res) => {
+  const userId = getReqUserId(req);
+  if (!userId) return res.status(401).json({ error: "No user id" });
+  const route = String(req.body?.route || "").trim();
+  if (!route) return res.status(400).json({ error: "Route is required" });
+  try {
+    const routeRow = await prisma.route.findFirst({
+      where: { name: route, isActive: true },
+    });
+    if (!routeRow) return res.status(400).json({ error: "Invalid route. Select an active route." });
+
+    const existing = await ensureCashierDayStarted(userId);
+    if (existing) return res.status(400).json({ error: "Day already started", session: existing });
+    const session = await prisma.cashierDay.create({
+      data: {
+        userId,
+        dayKey: getDayKey(),
+        route: routeRow.name,
+        routeId: routeRow.id,
+      },
+      include: {
+        user: { select: { id: true, username: true, role: true } },
+        routeRef: true,
+      },
+    });
+    return res.status(201).json({ message: "Day started", session });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to start day" });
+  }
+});
+
+app.post("/cashier/day/end", auth, requireRole("cashier"), async (req: AuthedRequest, res) => {
+  const userId = getReqUserId(req);
+  if (!userId) return res.status(401).json({ error: "No user id" });
+  try {
+    const openDay = await ensureCashierDayStarted(userId);
+    if (!openDay) return res.status(400).json({ error: "No active day to end" });
+    const ended = await prisma.cashierDay.update({
+      where: { id: openDay.id },
+      data: { endedAt: new Date(), autoEnded: false },
+      include: {
+        user: { select: { id: true, username: true, role: true } },
+      },
+    });
+    return res.json({ message: "Day ended", session: ended });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to end day" });
+  }
+});
+
+// Admin live view endpoint (UI can be added later)
+app.get("/admin/cashier/day/live", auth, requireRole("admin"), async (req, res) => {
+  try {
+    const live = await prisma.cashierDay.findMany({
+      where: { endedAt: null },
+      include: {
+        user: { select: { id: true, username: true, role: true } },
+        routeRef: true,
+      },
+      orderBy: { startedAt: "desc" },
+    });
+    return res.json(live);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to load live cashier days" });
+  }
+});
+
+app.get("/admin/cashier/day/logs", auth, requireRole("admin"), async (req, res) => {
+  try {
+    const fromRaw = String(req.query.from || "").trim();
+    const toRaw = String(req.query.to || "").trim();
+
+    let startDate: Date;
+    let endDate: Date;
+    if (fromRaw && toRaw) {
+      const from = parseDateOnly(fromRaw);
+      const to = parseDateOnly(toRaw);
+      if (!from || !to) {
+        return res.status(400).json({ error: "Invalid date range. Use YYYY-MM-DD" });
+      }
+      startDate = from;
+      endDate = new Date(to);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      endDate = new Date();
+      startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 7);
+    }
+
+    const sessions = await prisma.cashierDay.findMany({
+      where: {
+        startedAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        user: { select: { id: true, username: true, role: true } },
+        routeRef: true,
+      },
+      orderBy: { startedAt: "desc" },
+      take: 500,
+    });
+
+    const rows = await Promise.all(
+      sessions.map(async (s) => {
+        const rangeStart = s.startedAt;
+        const rangeEnd = s.endedAt || new Date();
+        const where = {
+          createdById: s.userId,
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+        } as Prisma.SaleWhereInput;
+        const [salesCount, sums] = await Promise.all([
+          prisma.sale.count({ where }),
+          prisma.sale.aggregate({
+            where,
+            _sum: { total: true },
+          }),
+        ]);
+        return {
+          id: s.id,
+          dayKey: s.dayKey,
+          route: s.route,
+          startedAt: s.startedAt,
+          endedAt: s.endedAt,
+          autoEnded: s.autoEnded,
+          cashier: s.user,
+          salesCount,
+          salesTotal: Number(sums._sum.total || 0),
+        };
+      })
+    );
+
+    return res.json({ from: startDate, to: endDate, rows });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to load cashier day logs" });
+  }
+});
+
 // ------------------- CUSTOMER API -------------------
 
 // Create customer (admin OR cashier)
@@ -406,6 +657,7 @@ app.post("/products", auth, requireRole("admin"), async (req, res) => {
       barcode,
       name,
       price,
+      invoicePrice,
       stock,
       supplierName,
       supplierInvoiceNo,
@@ -421,17 +673,27 @@ app.post("/products", auth, requireRole("admin"), async (req, res) => {
     // default receive date = today if not provided
     const rd = receivedDate ? new Date(String(receivedDate)) : new Date();
 
+    const pmRaw = supplierPaymentMethod ? String(supplierPaymentMethod).trim().toLowerCase() : null;
+    const safePm =
+      pmRaw === "cash" || pmRaw === "credit" || pmRaw === "cheque"
+        ? pmRaw
+        : null;
+
     const p = await prisma.product.create({
       data: {
         barcode: String(barcode),
         name: String(name),
         price: new Prisma.Decimal(Number(price || 0)),
+        invoicePrice:
+          invoicePrice !== undefined && invoicePrice !== null && String(invoicePrice).trim() !== ""
+            ? new Prisma.Decimal(Number(invoicePrice || 0))
+            : null,
         stock: Number(stock || 0),
 
         // ✅ new optional fields
         supplierName: supplierName ? String(supplierName) : null,
         supplierInvoiceNo: supplierInvoiceNo ? String(supplierInvoiceNo) : null,
-        supplierPaymentMethod: supplierPaymentMethod ? String(supplierPaymentMethod) : null,
+        supplierPaymentMethod: safePm,
         receivedDate: rd,
         invoicePhoto: invoicePhoto ? String(invoicePhoto) : null,
       },
@@ -589,8 +851,19 @@ app.post("/sales", auth, async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: "No items provided" });
   }
 
+  const role = String(req.user?.role || "");
+  if (role === "cashier") {
+    const userId = getReqUserId(req);
+    if (!userId) return res.status(401).json({ error: "No user id" });
+    const day = await ensureCashierDayStarted(userId);
+    if (!day) {
+      return res.status(403).json({ error: "Start day is required before billing" });
+    }
+  }
+
   try {
     let total = 0;
+    const createdById = getReqUserId(req);
 
     const sale = await prisma.$transaction(async (tx) => {
       // customer optional
@@ -645,6 +918,7 @@ if (customer && typeof customer === "object") {
         data: {
           total: new Prisma.Decimal(0),
           ...(customerId ? { customer: { connect: { id: customerId } } } : {}),
+          ...(createdById ? { createdBy: { connect: { id: createdById } } } : {}),
           paymentMethod: pm,
           discountType: dt,
           discountValue: new Prisma.Decimal(safeDv),
@@ -762,11 +1036,32 @@ app.get("/sales", auth, async (req, res) => {
   const sales = await prisma.sale.findMany({
     include: {
       customer: true,
+      createdBy: { select: { id: true, username: true, role: true } },
       saleItems: { include: { product: true } },
     },
     orderBy: { id: "desc" },
   });
-  res.json(sales);
+
+  const withRoute = await Promise.all(
+    sales.map(async (sale) => {
+      let route: string | null = null;
+      if (sale.createdById) {
+        const session = await prisma.cashierDay.findFirst({
+          where: {
+            userId: sale.createdById,
+            startedAt: { lte: sale.createdAt },
+            OR: [{ endedAt: null }, { endedAt: { gte: sale.createdAt } }],
+          },
+          orderBy: { startedAt: "desc" },
+          select: { route: true },
+        });
+        route = session?.route || null;
+      }
+      return { ...sale, route };
+    })
+  );
+
+  res.json(withRoute);
 });
 
 // Get one sale by id (for Returns screen)

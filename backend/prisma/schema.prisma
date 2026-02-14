@@ -16,6 +16,8 @@ model User {
 
   saleReturns SaleReturn[]
   draftSales DraftSale[]
+  cashierDays CashierDay[]
+  sales       Sale[]
 }
 
 model Customer {
@@ -36,6 +38,7 @@ model Product {
   barcode   String     @unique
   name      String
   price     Decimal
+  invoicePrice Decimal?
   stock     Int
   damagedStock Int @default(0)
   supplierName      String?
@@ -64,6 +67,9 @@ model Sale {
   customer   Customer? @relation(fields: [customerId], references: [id])
 
   saleReturns SaleReturn[]
+
+  createdById Int?
+  createdBy   User? @relation(fields: [createdById], references: [id])
 }
 
 model SaleItem {
@@ -140,4 +146,32 @@ model DraftSale {
 
   createdById Int?
   createdBy   User? @relation(fields: [createdById], references: [id])
+}
+
+model CashierDay {
+  id        Int      @id @default(autoincrement())
+  dayKey    String
+  route     String
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  autoEnded Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+  routeId Int?
+  routeRef Route? @relation(fields: [routeId], references: [id])
+
+  @@index([userId, dayKey])
+}
+
+model Route {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cashierDays CashierDay[]
 }
