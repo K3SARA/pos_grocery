@@ -20,7 +20,7 @@ export default function Cashier({ onLogout }) {
   const [printPaperPrompt, setPrintPaperPrompt] = useState(false);
   const [printLayoutMode, setPrintLayoutMode] = useState("3inch");
   const DEFAULT_BILL_LAYOUT = {
-    companyName: "Apex Logistics",
+    companyName: "Plus Vision",
     headerText: "Aluviharaya, Matale\nMobile: +94770654279\nThank you! Visit again",
     footerText: "Powered by POS",
     showItemsHeading: true,
@@ -118,7 +118,7 @@ export default function Cashier({ onLogout }) {
       setDrafts(Array.isArray(list) ? list : []);
     } catch {
       setDrafts([]);
-      setMsg("❌ Failed to load drafts. Please login again or check server.");
+      setMsg("??? Failed to load drafts. Please login again or check server.");
     } finally {
       setDraftLoading(false);
     }
@@ -293,14 +293,14 @@ export default function Cashier({ onLogout }) {
     const paidQty = getPaidQtyByBarcode(code);
     const available = Math.max(0, stock - paidQty);
     if (q > available) {
-      setMsg(`❌ Only ${available} available for free issue`);
+      setMsg(`??? Only ${available} available for free issue`);
       return;
     }
 
     setCart((prev) => {
       const baseItem = prev.find((p) => p.barcode === code && !p.freeIssue);
       if (!baseItem) {
-        setMsg("❌ Add paid qty first");
+        setMsg("??? Add paid qty first");
         return prev;
       }
 
@@ -408,7 +408,7 @@ export default function Cashier({ onLogout }) {
     } catch {
       // ignore storage errors
     }
-    setMsg("✅ Bill layout saved");
+    setMsg("??? Bill layout saved");
   };
 
   const resetLayout = () => {
@@ -430,7 +430,7 @@ export default function Cashier({ onLogout }) {
     window.onafterprint = cleanup;
     setTimeout(() => {
       window.print();
-      setMsg("✅ bill printed");
+      setMsg("??? bill printed");
     }, 100);
   };
 
@@ -466,7 +466,7 @@ export default function Cashier({ onLogout }) {
       setBarcode("");
       setQty(1);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -483,11 +483,11 @@ export default function Cashier({ onLogout }) {
       const product = await apiFetch(`/products/${code}`);
       const available = Math.max(0, Number(product.stock || 0) - getCartQtyByBarcode(product.barcode));
       if (available < 1) {
-        setMsg("❌ No stock available for free issue");
+        setMsg("??? No stock available for free issue");
         return;
       }
       if (freeQty > available) {
-        setMsg(`❌ Only ${available} available for free issue`);
+        setMsg(`??? Only ${available} available for free issue`);
         return;
       }
 
@@ -517,7 +517,7 @@ export default function Cashier({ onLogout }) {
       setFreeIssueBarcode("");
       setFreeIssueQty(1);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -534,7 +534,7 @@ export default function Cashier({ onLogout }) {
     const currentQty = cart.find((p) => p.barcode === code && Boolean(p.freeIssue) === Boolean(isFreeIssue))?.qty || 0;
     const available = getAvailableForEdit(code, isFreeIssue, currentQty);
     if (q > available) {
-      setMsg(`❌ Only ${available} available for this item`);
+      setMsg(`??? Only ${available} available for this item`);
       return;
     }
     setCart((prev) =>
@@ -611,13 +611,13 @@ export default function Cashier({ onLogout }) {
         body: JSON.stringify(payload),
       });
 
-      setMsg("✅ Draft saved");
+      setMsg("??? Draft saved");
       setDraftName("");
 
       const list = await apiFetch("/drafts");
       setDrafts(Array.isArray(list) ? list : []);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -639,9 +639,9 @@ export default function Cashier({ onLogout }) {
       setPaymentMethod(d.paymentMethod || "cash");
       setCashReceived(d.cashReceived ?? "");
 
-      setMsg("✅ Draft loaded");
+      setMsg("??? Draft loaded");
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -654,7 +654,7 @@ export default function Cashier({ onLogout }) {
       const list = await apiFetch("/drafts");
       setDrafts(Array.isArray(list) ? list : []);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -665,7 +665,7 @@ export default function Cashier({ onLogout }) {
 
   const completeSale = async () => {
     if (cart.length === 0) {
-      setMsg("❌ Cart is empty");
+      setMsg("??? Cart is empty");
       return;
     }
 
@@ -674,12 +674,12 @@ export default function Cashier({ onLogout }) {
       const total = Number(grandTotal);
 
       if (!Number.isFinite(received)) {
-        setMsg("❌ Please enter cash received");
+        setMsg("??? Please enter cash received");
         return;
       }
 
       if (received + 1e-9 < total) {
-        setMsg("❌ Cash received is not enough");
+        setMsg("??? Cash received is not enough");
         return;
       }
     }
@@ -701,17 +701,17 @@ export default function Cashier({ onLogout }) {
     if (customerEnabled) {
       const name = customerName.trim();
       if (!name) {
-        setMsg("❌ Customer name is required when customer is enabled");
+        setMsg("??? Customer name is required when customer is enabled");
         return;
       }
       if (!nameRegex.test(name)) {
-        setMsg("❌ Customer name must contain only letters and spaces");
+        setMsg("??? Customer name must contain only letters and spaces");
         return;
       }
 
       const phoneDigits = digitsOnly(customerPhone);
       if (phoneDigits.length !== 10) {
-        setMsg("❌ Customer phone must be exactly 10 digits");
+        setMsg("??? Customer phone must be exactly 10 digits");
         return;
       }
 
@@ -736,7 +736,7 @@ export default function Cashier({ onLogout }) {
         body: JSON.stringify(payload),
       });
 
-      setMsg("✅ Sale completed!");
+      setMsg("??? Sale completed!");
       const saleId =
         sale?.id || sale?.saleId || sale?._id || sale?.invoiceNo || sale?.billNo || "";
       openPrintPreview({
@@ -755,7 +755,7 @@ export default function Cashier({ onLogout }) {
       });
       clearCart();
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -764,7 +764,7 @@ export default function Cashier({ onLogout }) {
   return (
     <div className="page">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ margin: 0 }}>🧾 Cashier</h2>
+        <h2 style={{ margin: 0 }}>???? Cashier</h2>
         {role === "admin" && (
   <button
     className="btn ghost"
@@ -834,7 +834,7 @@ export default function Cashier({ onLogout }) {
                 zIndex: 9999,
               }}
             >
-              {draftLoading && <div style={{ fontSize: 12, color: "#000" }}>Loading drafts…</div>}
+              {draftLoading && <div style={{ fontSize: 12, color: "#000" }}>Loading drafts???</div>}
               {!draftLoading && drafts.length === 0 && (
                 <div style={{ fontSize: 12, color: "#000" }}>No drafts saved</div>
               )}
@@ -938,8 +938,8 @@ export default function Cashier({ onLogout }) {
                     >
                       <div style={{ fontWeight: 700 }}>{c.name}</div>
                   <div style={{ fontSize: 12, color: "#000" }}>
-                    {c.phone ? `📞 ${c.phone}` : "No phone"}
-                    {c.address ? ` • ${c.address}` : ""}
+                    {c.phone ? `???? ${c.phone}` : "No phone"}
+                    {c.address ? ` ??? ${c.address}` : ""}
                   </div>
                     </div>
                   ))}
@@ -947,7 +947,7 @@ export default function Cashier({ onLogout }) {
             )}
           </div>
 
-          {/* ✅ FIXED: Barcode input (was broken in your file) */}
+          {/* ??? FIXED: Barcode input (was broken in your file) */}
           <div style={{ position: "relative" }}>
               <input
                 value={barcode}
@@ -1014,7 +1014,7 @@ export default function Cashier({ onLogout }) {
                     >
                       <div style={{ fontWeight: 700 }}>{p.name}</div>
                       <div style={{ fontSize: 12, color: "#000" }}>
-                        {p.barcode} • Price: {p.price} • Stock: {getRemainingStockForDisplay(p.barcode)}
+                        {p.barcode} ??? Price: {p.price} ??? Stock: {getRemainingStockForDisplay(p.barcode)}
                       </div>
                     </div>
                   ))
@@ -1077,9 +1077,9 @@ export default function Cashier({ onLogout }) {
         </div>
       </div>
 
-      {/* ✅ Discount + Payment */}
+      {/* ??? Discount + Payment */}
       <div style={{ marginTop: 18, border: "1px solid #ddd", padding: 12, borderRadius: 10 }}>
-        <h3 style={{ marginTop: 0 }}>💰 Discount & Payment</h3>
+        <h3 style={{ marginTop: 0 }}>???? Discount & Payment</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
           <div>
@@ -1163,7 +1163,7 @@ export default function Cashier({ onLogout }) {
 
       {/* Cart */}
       <div style={{ marginTop: 15 }}>
-        <h3>🛒 Cart</h3>
+        <h3>???? Cart</h3>
 
         {/* Drafts */}
         <div style={{ marginBottom: 12, padding: 10, border: "1px dashed #ccc", borderRadius: 8 }}>
@@ -1177,7 +1177,7 @@ export default function Cashier({ onLogout }) {
             <button onClick={saveDraft} disabled={loading} style={{ padding: 8 }}>
               Save Draft
             </button>
-            {draftLoading && <span style={{ fontSize: 12, color: "#666" }}>Loading drafts…</span>}
+            {draftLoading && <span style={{ fontSize: 12, color: "#666" }}>Loading drafts???</span>}
           </div>
 
           <div style={{ marginTop: 8 }}>
@@ -1369,7 +1369,7 @@ export default function Cashier({ onLogout }) {
         >
           <div style={{ background: "#fff", padding: 15, borderRadius: 10, maxWidth: 420, width: "100%" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0 }}>🖨️ Print Preview</h3>
+              <h3 style={{ margin: 0 }}>??????? Print Preview</h3>
               <button onClick={() => setShowPrint(false)}>X</button>
             </div>
 
@@ -1517,3 +1517,4 @@ export default function Cashier({ onLogout }) {
     </div>
   );
 }
+

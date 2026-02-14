@@ -64,7 +64,7 @@ const openEdit = async (saleId) => {
     });
     setEditMap(map);
   } catch (e) {
-    setEditErr("❌ " + e.message);
+    setEditErr("??? " + e.message);
   }
 };
 const deleteSale = async (saleId) => {
@@ -80,9 +80,9 @@ const deleteSale = async (saleId) => {
     });
 
     await loadSales(); // refresh reports list
-    alert("✅ Sale deleted successfully");
+    alert("??? Sale deleted successfully");
   } catch (e) {
-    alert("❌ " + e.message);
+    alert("??? " + e.message);
   }
 };
 
@@ -95,7 +95,7 @@ const openView = async (saleId) => {
     const sale = await apiFetch(`/sales/${saleId}`);
     setViewSale(sale);
   } catch (e) {
-    setViewErr("❌ " + e.message);
+    setViewErr("??? " + e.message);
   }
 };
 
@@ -108,7 +108,7 @@ const closeView = () => {
 
 const getBillLayoutFromStorage = () => {
   const DEFAULT_BILL_LAYOUT = {
-    companyName: "Apex Logistics",
+    companyName: "Plus Vision",
     headerText: "Aluviharaya, Matale\\nMobile: +94770654279\\nThank you! Visit again",
     footerText: "Powered by POS",
     showItemsHeading: true,
@@ -188,9 +188,9 @@ const saveEdit = async () => {
     // Refresh reports list (table + totals)
     await loadSales();
 
-    setEditErr("✅ Sale updated");
+    setEditErr("??? Sale updated");
   } catch (e) {
-    setEditErr("❌ " + e.message);
+    setEditErr("??? " + e.message);
   } finally {
     setSaving(false);
   }
@@ -218,7 +218,7 @@ const closeEdit = () => {
       const data = await apiFetch("/sales");
       setSales(Array.isArray(data) ? data : []);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
       setSales([]);
     } finally {
       setLoading(false);
@@ -231,7 +231,7 @@ const closeEdit = () => {
       const data = await apiFetch("/reports/stock");
       setStockReport(data || { totalStock: 0, totalValue: 0, rows: [] });
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
       setStockReport({ totalStock: 0, totalValue: 0, rows: [] });
     } finally {
       setStockLoading(false);
@@ -244,7 +244,7 @@ const closeEdit = () => {
       const data = await apiFetch("/reports/customer-outstanding");
       setCustomerOutstanding(Array.isArray(data?.rows) ? data.rows : []);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
       setCustomerOutstanding([]);
     } finally {
       setOutstandingLoading(false);
@@ -399,7 +399,7 @@ const closeEdit = () => {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <h2 style={{ margin: 0 }}>📊 Reports</h2>
+        <h2 style={{ margin: 0 }}>???? Reports</h2>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => navigate(-1)} style={{ padding: 10 }}>
             Back
@@ -428,7 +428,7 @@ const closeEdit = () => {
 
           {!sales.some((s) => s.createdAt) && (
             <div style={{ color: "#b45309", fontSize: 13 }}>
-              Note: Your sales don’t have <b>createdAt</b> in DB yet, so date filtering may not work perfectly.
+              Note: Your sales don???t have <b>createdAt</b> in DB yet, so date filtering may not work perfectly.
             </div>
           )}
         </div>
@@ -840,7 +840,7 @@ const closeEdit = () => {
               <h3 style={{ marginTop: 0 }}>View Bill</h3>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setViewPrintPrompt(true)}>Print</button>
-                <button onClick={closeView}>✕</button>
+                <button onClick={closeView}>???</button>
               </div>
             </div>
 
@@ -950,7 +950,7 @@ const closeEdit = () => {
     >
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h3>Edit Sale {editSale ? `#${editSale.id}` : ""}</h3>
-        <button onClick={closeEdit}>✕</button>
+        <button onClick={closeEdit}>???</button>
       </div>
 
       {editErr && <p style={{ color: "red" }}>{editErr}</p>}
@@ -1087,6 +1087,7 @@ const closeEdit = () => {
     </div>
   );
 }
+
 
 
 

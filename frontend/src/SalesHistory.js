@@ -21,7 +21,7 @@ export default function SalesHistory() {
       const data = await apiFetch("/sales");
       setSales(data);
     } catch (e) {
-      setMsg("❌ " + e.message);
+      setMsg("??? " + e.message);
     } finally {
       setLoading(false);
     }
@@ -43,7 +43,7 @@ export default function SalesHistory() {
 
   const getBillLayoutFromStorage = () => {
     const DEFAULT_BILL_LAYOUT = {
-      companyName: "Apex Logistics",
+      companyName: "Plus Vision",
       headerText: "Aluviharaya, Matale\nMobile: +94770654279\nThank you! Visit again",
       footerText: "Powered by POS",
       showItemsHeading: true,
@@ -67,7 +67,7 @@ export default function SalesHistory() {
   return (
     <div className="page">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ margin: 0 }}>📜 Sales History</h2>
+        <h2 style={{ margin: 0 }}>???? Sales History</h2>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => navigate(-1)} style={{ padding: 10 }}>
             Back
@@ -180,7 +180,7 @@ export default function SalesHistory() {
                   setPrintPrompt(false);
                 }}
               >
-                ✖
+                ???
               </button>
             </div>
 
@@ -279,6 +279,7 @@ export default function SalesHistory() {
     </div>
   );
 }
+
 
 
 

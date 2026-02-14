@@ -719,7 +719,7 @@ invoicePhoto: newInvoicePhoto || null,
       <div className="admin-content">
         <div className="topbar">
           <div className="title">
-            <h2>Admin Dashboard | Apex Logistics</h2>
+            <h2>Admin Dashboard | Plus Vision</h2>
             <span>Minimal control center for your POS</span>
           </div>
           <div className="actions">
