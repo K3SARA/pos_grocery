@@ -54,21 +54,33 @@ export default function Login({ onLogin }) {
 
       <form onSubmit={submit}>
         <div style={{ marginBottom: 10 }}>
-          <label>Username</label>
+          <label style={{ color: "#ffffff" }}>Username</label>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            style={{ width: "100%", padding: 10 }}
+            style={{
+              width: "100%",
+              padding: 10,
+              color: "#ffffff",
+              background: "#0f172a",
+              border: "1px solid #334155",
+            }}
           />
         </div>
 
         <div style={{ marginBottom: 10 }}>
-          <label>Password</label>
+          <label style={{ color: "#ffffff" }}>Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: "100%", padding: 10 }}
+            style={{
+              width: "100%",
+              padding: 10,
+              color: "#ffffff",
+              background: "#0f172a",
+              border: "1px solid #334155",
+            }}
           />
         </div>
 
