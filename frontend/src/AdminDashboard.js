@@ -67,6 +67,7 @@ const [newInvoicePhoto, setNewInvoicePhoto] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("cashier");
   const [roleEdits, setRoleEdits] = useState({});
+  const [fastMode, setFastMode] = useState(true);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
@@ -119,28 +120,27 @@ const [newInvoicePhoto, setNewInvoicePhoto] = useState("");
     }
   }, []);
 
-  const loadCustomers = useCallback(async () => {
-    try {
-      const [data, outstanding] = await Promise.all([
-        apiFetch("/customers/all"),
-        apiFetch("/reports/customer-outstanding"),
-      ]);
+ const loadCustomers = async () => {
+  try {
+    const [data, outstanding] = await Promise.all([
+      apiFetch("/customers/all"),
+      apiFetch("/reports/customer-outstanding"),
+    ]);
 
-      setCustomers(Array.isArray(data) ? data : []);
-      const map = {};
-      (outstanding?.rows || []).forEach((row) => {
-        if (row?.customerId) {
-          map[row.customerId] = Number(row.outstanding || 0);
-        }
-      });
-      setCustomerOutstanding(map);
-      setCustomersLoaded(true);
-    } catch (e) {
-      console.error(e);
-      setCustomers([]);
-      setCustomerOutstanding({});
-    }
-  }, []);
+    setCustomers(Array.isArray(data) ? data : []);
+    const map = {};
+    (outstanding?.rows || []).forEach((row) => {
+      if (row?.customerId) {
+        map[row.customerId] = Number(row.outstanding || 0);
+      }
+    });
+    setCustomerOutstanding(map);
+  } catch (e) {
+    console.error(e);
+    setCustomers([]);
+    setCustomerOutstanding({});
+  }
+};
 
 
   const loadAnalytics = useCallback(async () => {
@@ -192,12 +192,14 @@ const [newInvoicePhoto, setNewInvoicePhoto] = useState("");
   }, [loadSummary]);
 
   useEffect(() => {
-    if (!productsLoaded) loadProducts(0);
-    if (!usersLoaded) loadUsers();
-    if (!analyticsLoaded) loadAnalytics();
-    if (!salesLoaded) loadSales();
-    if (!customersLoaded) loadCustomers();
-  }, [productsLoaded, usersLoaded, analyticsLoaded, salesLoaded, customersLoaded, loadProducts, loadUsers, loadAnalytics, loadSales, loadCustomers]);
+    if (!fastMode) {
+      if (!productsLoaded) loadProducts(0);
+      if (!usersLoaded) loadUsers();
+      if (!analyticsLoaded) loadAnalytics();
+      if (!salesLoaded) loadSales();
+      if (!customersLoaded) loadCustomers();
+    }
+  }, [fastMode, productsLoaded, usersLoaded, analyticsLoaded, salesLoaded, customersLoaded, loadProducts, loadUsers, loadAnalytics, loadSales, loadCustomers]);
 
   const visibleProducts = useMemo(() => {
     const normalize = (v) => String(v ?? "").toLowerCase();
@@ -783,10 +785,25 @@ invoicePhoto: newInvoicePhoto || null,
                 </div>
               )}
             </div>
+            <button className="btn secondary" onClick={() => navigate("/end-day")}>End Day</button>
             <button className="btn ghost" onClick={() => navigate("/billing")}>Billing</button>
             <button className="btn" onClick={onLogout}>Logout</button>
           </div>
         </div>
+
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <input
+            id="fast-mode"
+            type="checkbox"
+            checked={fastMode}
+            onChange={(e) => setFastMode(e.target.checked)}
+          />
+          <label htmlFor="fast-mode" style={{ fontSize: 12, color: "var(--muted)" }}>
+            Fast Mode (load heavy data only when needed)
+          </label>
+        </div>
+      
 
         {msg && <div className="banner">{msg}</div>}
 
@@ -883,9 +900,9 @@ invoicePhoto: newInvoicePhoto || null,
               </div>
             </div>
 
-            {!analyticsLoaded ? (
+            {!analyticsLoaded && fastMode ? (
               <div style={{ color: "var(--text)", fontSize: 12 }}>
-                Loading analytics...
+                Analytics is paused to keep startup fast. Click “Load Analytics” when needed.
               </div>
             ) : (
               <>
@@ -978,9 +995,9 @@ invoicePhoto: newInvoicePhoto || null,
               </div>
             </div>
 
-            {!salesLoaded ? (
+            {!salesLoaded && fastMode ? (
               <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                Loading sales...
+                Sales are paused to keep startup fast. Click "Load Sales" when needed.
               </div>
             ) : (
               <table>
@@ -1187,9 +1204,9 @@ invoicePhoto: newInvoicePhoto || null,
               </div>
             </div>
 
-            {!customersLoaded ? (
+            {!customersLoaded && fastMode ? (
               <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                Loading customers...
+                Customers are paused to keep startup fast. Click "Load Customers" when needed.
               </div>
             ) : (
               <table>
@@ -1247,9 +1264,9 @@ invoicePhoto: newInvoicePhoto || null,
               </div>
             </div>
 
-            {!usersLoaded ? (
+            {!usersLoaded && fastMode ? (
               <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                Loading users...
+                Users are paused to keep startup fast. Click “Load Users” when needed.
               </div>
             ) : (
               <table>
