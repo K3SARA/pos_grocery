@@ -1,7 +1,9 @@
 /* eslint-env browser */
 
 const API =
-    (process.env.REACT_APP_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  String(process.env.REACT_APP_API_URL || "http://localhost:4000")
+    .trim()
+    .replace(/\/+$/, "");
 
 
 

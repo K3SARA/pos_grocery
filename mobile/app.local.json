@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "POS Mobile Local",
+    "slug": "pos-mobile-local",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f4f4f5"
+      },
+      "package": "com.posgrocery.mobile.local"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker"
+    ],
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
+    }
+  }
+}
